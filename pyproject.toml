@@ -1,0 +1,24 @@
+# Tool configuration only. The package is never pip-installed: the flake
+# runs it via PYTHONPATH=pkg, and ALL dependencies (textual at runtime;
+# pytest, pytest-asyncio, ruff for development) come from flake.nix —
+# `nix run` for the TUI, `nix develop` for the dev tools.
+[project]
+name = "dotfiles"
+version = "0.1.0"
+description = "Dotfiles manager: home-manager profile, tracked files, secrets, and a Textual TUI"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["pkg"]
+addopts = "-q"
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["pkg", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["SIM108"]

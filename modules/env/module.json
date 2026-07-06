@@ -1,0 +1,4 @@
+{
+  "description": "session environment (XDG dirs, EDITOR/PAGER vars)",
+  "children": {}
+}

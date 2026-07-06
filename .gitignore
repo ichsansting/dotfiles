@@ -1,0 +1,17 @@
+# Nix build outputs
+/result
+result-*
+
+# Python bytecode + tool caches (pytest / ruff from the devShell)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# Per-machine state (profile lives in ~/.local/state/dotfiles/)
+/.local/
+
+# Editor / OS noise
+.DS_Store
+.direnv/

@@ -1,0 +1,16 @@
+symbolPreset: nerd
+theme: 
+  dark: titanium
+setupVersion: 1
+modelRoles: 
+  smol: github-copilot/claude-sonnet-4.6
+  commit: github-copilot/claude-sonnet-4.6
+  task: github-copilot/claude-sonnet-4.6
+  slow: github-copilot/claude-opus-4.8
+  plan: github-copilot/claude-opus-4.8
+  designer: github-copilot/claude-opus-4.8
+  vision: github-copilot/claude-sonnet-4.6
+  default: anthropic/claude-sonnet-4-6
+hideThinkingBlock: true
+memory: 
+  backend: local

@@ -1,0 +1,171 @@
+/* Layout ------------------------------------------------------------- */
+
+#status-bar {
+    dock: top;
+    height: 1;
+    background: $surface;
+    color: $text;
+}
+
+#body {
+    height: 1fr;
+}
+
+#left-column {
+    width: 42;
+    min-width: 30;
+}
+
+/* Panels --------------------------------------------------------------- */
+
+#modules-panel {
+    height: 45%;
+    border: round $surface-lighten-2;
+    padding: 0 1;
+}
+
+#files-panel {
+    height: 1fr;
+    border: round $surface-lighten-2;
+}
+
+#main-pane {
+    width: 1fr;
+    border: round $surface-lighten-2;
+    padding: 0 1;
+}
+
+#modules-panel:focus,
+#files-panel:focus,
+#main-pane:focus,
+#main-pane:focus-within {
+    border: round $accent;
+    border-title-color: $accent;
+}
+
+#pane-welcome {
+    padding: 1 2;
+    color: $text-muted;
+}
+
+#pane-log {
+    background: transparent;
+}
+
+/* Modals ---------------------------------------------------------------- */
+
+ConfirmModal, PresetModal, AddFileModal, AgeKeyScreen, HelpScreen,
+NewModuleModal, MoveFileModal {
+    align: center middle;
+}
+
+#confirm-container, #preset-container, #newmod-container, #move-container {
+    width: 60;
+    height: auto;
+    background: $surface;
+    border: round $primary;
+    padding: 1 2;
+}
+
+#confirm-container.danger {
+    border: round $error;
+}
+
+#confirm-title, #preset-title, #add-title, #age-title, #help-title,
+#newmod-title, #move-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#confirm-message, #preset-note, #move-note {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#confirm-buttons, #preset-buttons, #add-buttons, #newmod-buttons, #move-buttons {
+    margin-top: 1;
+    height: auto;
+    align-horizontal: right;
+}
+
+#confirm-buttons Button, #preset-buttons Button, #add-buttons Button,
+#newmod-buttons Button, #move-buttons Button {
+    margin-left: 1;
+}
+
+#preset-list, #move-list {
+    height: auto;
+    max-height: 10;
+}
+
+#newmod-error {
+    height: 1;
+}
+
+#add-container {
+    width: 80%;
+    height: 85%;
+    background: $surface;
+    border: round $primary;
+    padding: 1 2;
+}
+
+#file-tree {
+    height: 1fr;
+    border: round $surface-lighten-1;
+}
+
+#picked-path {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#add-fields {
+    height: auto;
+    margin-top: 1;
+}
+
+#add-module-field, #add-mode-field {
+    width: 1fr;
+    height: auto;
+}
+
+.field-label {
+    color: $text-muted;
+}
+
+#age-container {
+    width: 70;
+    height: auto;
+    background: $surface;
+    border: round $warning;
+    padding: 1 2;
+}
+
+#age-title {
+    color: $warning;
+}
+
+#age-desc {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#age-container Button {
+    margin-top: 1;
+}
+
+#age-log {
+    margin-top: 1;
+    height: 6;
+}
+
+#help-container {
+    width: 70;
+    height: auto;
+    max-height: 90%;
+    background: $surface;
+    border: round $primary;
+    padding: 1 2;
+    overflow-y: auto;
+}

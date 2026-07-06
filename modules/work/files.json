@@ -1,0 +1,24 @@
+{
+  "files": [
+    {
+      "path": ".aws/config",
+      "mode": "secret"
+    },
+    {
+      "path": ".config/fish/conf.d/traveloka-secrets.fish",
+      "mode": "secret"
+    },
+    {
+      "path": ".omp/agent/AGENTS.md",
+      "mode": "plain"
+    },
+    {
+      "path": ".omp/agent/config.yml",
+      "mode": "plain"
+    },
+    {
+      "path": ".omp/agent/models.yml",
+      "mode": "plain"
+    }
+  ]
+}

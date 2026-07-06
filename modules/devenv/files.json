@@ -1,0 +1,24 @@
+{
+  "files": [
+    {
+      "path": ".claude/CLAUDE.md",
+      "mode": "plain",
+      "child": "ai"
+    },
+    {
+      "path": ".claude/settings.json",
+      "mode": "plain",
+      "child": "ai"
+    },
+    {
+      "path": ".claude/skills/caveman-commit/SKILL.md",
+      "mode": "plain",
+      "child": "ai"
+    },
+    {
+      "path": ".claude/skills/drop-handoff/SKILL.md",
+      "mode": "plain",
+      "child": "ai"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "description": "terminal experience (fish, starship, atuin, zoxide, zellij)",
+  "children": {
+    "fish": "fish shell, plugins, abbrs, hms function",
+    "starship": "starship prompt (Catppuccin)",
+    "atuin": "shell history search/sync",
+    "zoxide": "smarter cd",
+    "zellij": "terminal multiplexer"
+  }
+}

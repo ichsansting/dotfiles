@@ -1,0 +1,7 @@
+{
+  "description": "editor (helix + LSPs)",
+  "children": {
+    "helix": "helix editor with Catppuccin and per-language config",
+    "language-servers": "LSP/formatter packages (nixd, bash, fish, markdown, ty, ruff, typescript, nixfmt)"
+  }
+}

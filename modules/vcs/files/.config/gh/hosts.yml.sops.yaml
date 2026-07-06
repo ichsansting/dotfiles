@@ -1,0 +1,16 @@
+hosts.yml: ENC[AES256_GCM,data:EhH68n2gfpJ957xrbow+AMfGN0oYfWKjF7zw/cZS/GGsbsaYaKXi9C3n+lV8TySxYAoIVKt33gWT6IkvvXo6/cMOgz7yUbM1sxHX0r8AYSf6EMWfmX/S2cJr9RfpSDAMCixKYssQmYohHGPv9gu12fK2Yd7+I+oELO9IBYwGjSnxBku2WpLdeW68ip6ZanTLmDgVMCh/n1k9+CxevUtLeJVlq26UlrbAotBrpLVzSZMI2JIhI0Vp6h2KtWEAd78a067Js0wVYdSnmO0r8FpGDcdL9J8=,iv:CN8z9f7yJKnGmvkpMl/hFLGUUMfPclGZfvUQcxQL12Y=,tag:Cy3/cHWgNoIDMbsN22AibQ==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSArMFdLRHk3eWFnajRCalRH
+            Y0wxRHpVNldoWm8yRUJJWXJGRDJRQmRYQlR3Ck1lOFNjdlR1ZUdWWTRFeXkxekpN
+            M0tkRFBJcGMvRmMvd3kvaHg4cU1OemsKLS0tIGdIaXdHQ2ovTjhoSGY5ejM4cUlB
+            OHRlTW9QZlNBQ3ZXMmJFLzl5S2J2R00K6l/YueNO//jgelFsthIuPzrm5YgKMDpf
+            0opjYIWoFJLAP4LQx++rx+wQvZQ3kcj5+BVK815MrVFRW17gkLZgpA==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age14zj8xa84qtky4rs0xkcvyfg5gf3004rw2lls8wpxjceqlda9vc9qjyza4y
+    lastmodified: "2026-06-18T03:29:14Z"
+    mac: ENC[AES256_GCM,data:mfiRRoJVv8h2eA8sXQQeJEGey01iFT4ui20qzfEQiqPHjeuo7o611UjV6P9dY8tyZKuTiJCNNUw+qKQw6YapjUBngzGORxkUVTe4kxCSC0tKiptFQvGMmCgDKbm9GGhsDQ/PWaGRiH1WkKAO8T4C7AJbIJwNn6aJ2wjPYDZy4UU=,iv:H/7qzOyLMo2aw3fOUGjkGLPrMQbxVhQMpgkZgkHYxdg=,tag:5asm4WI3YauEgpuJcOKleA==,type:str]
+    unencrypted_suffix: _unencrypted
+    version: 3.13.1

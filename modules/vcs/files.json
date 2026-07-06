@@ -1,0 +1,12 @@
+{
+  "files": [
+    {
+      "path": ".config/gh/hosts.yml",
+      "mode": "secret"
+    },
+    {
+      "path": ".ssh/id_ed25519",
+      "mode": "secret"
+    }
+  ]
+}

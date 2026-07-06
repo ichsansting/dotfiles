@@ -1,0 +1,8 @@
+{
+  "description": "work environment (awscli, docker, granted, work secrets)",
+  "children": {
+    "aws-tools": "awscli2, docker, ast-grep",
+    "granted": "granted AWS role switcher",
+    "env": "work session variables (SEARXNG, TF plugin cache, ...)"
+  }
+}

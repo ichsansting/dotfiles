@@ -1,0 +1,9 @@
+{
+  "description": "version control (git, delta, gh, ssh)",
+  "children": {
+    "git": "git with SSH commit signing and aliases",
+    "delta": "delta diff pager (side-by-side)",
+    "gh": "GitHub CLI",
+    "ssh": "SSH client config for github.com + pubkey derivation"
+  }
+}

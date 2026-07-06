@@ -1,0 +1,8 @@
+{
+  "files": [
+    {
+      "path": ".claude/.credentials.json",
+      "mode": "secret"
+    }
+  ]
+}

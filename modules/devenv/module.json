@@ -1,0 +1,8 @@
+{
+  "description": "per-project dev environments (mise, direnv) and AI tooling",
+  "children": {
+    "mise": "runtime/tool version manager and its tool list",
+    "direnv": "per-directory envs with nix-direnv",
+    "ai": "claude-code config and .claude skills"
+  }
+}

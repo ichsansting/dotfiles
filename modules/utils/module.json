@@ -1,0 +1,10 @@
+{
+  "description": "CLI utilities in themed groups",
+  "children": {
+    "search": "fzf, ripgrep, fd",
+    "files": "eza, yazi, dust, duf",
+    "view": "bat, jq",
+    "monitor": "btop",
+    "nix-tools": "nvd, nix-tree, comma"
+  }
+}

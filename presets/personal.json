@@ -1,0 +1,7 @@
+{
+  "modules": {
+    "claude-oauth": {
+      "enable": true
+    }
+  }
+}
