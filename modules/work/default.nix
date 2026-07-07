@@ -1,4 +1,9 @@
-{ pkgs, lib, config, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  ...
+}:
 let
   cfg = config.dotfiles.work;
   on = child: cfg.enable && cfg.${child}.enable;
@@ -26,10 +31,10 @@ in
 
     (lib.mkIf (on "env") {
       home.sessionVariables = {
-        # ANTHROPIC_BASE_URL = "https://litellm.tvlk.cloud";
-        # ANTHROPIC_DEFAULT_SONNET_MODEL = "claude-sonnet-5";
-        # ANTHROPIC_DEFAULT_HAIKU_MODEL = "claude-haiku-4.5";
-        # ANTHROPIC_DEFAULT_OPUS_MODEL = "claude-opus-4.8";
+        ANTHROPIC_BASE_URL = "https://litellm.tvlk.cloud";
+        ANTHROPIC_DEFAULT_SONNET_MODEL = "claude-sonnet-5";
+        ANTHROPIC_DEFAULT_HAIKU_MODEL = "claude-haiku-4.5";
+        ANTHROPIC_DEFAULT_OPUS_MODEL = "claude-opus-4.8";
 
         SEARXNG_ENDPOINT = "http://172.17.0.1:8080";
         TF_PLUGIN_CACHE_DIR = "${config.home.homeDirectory}/.terraform.d/plugin-cache";
