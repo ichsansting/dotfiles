@@ -117,13 +117,33 @@ class DashboardScreen(Screen):
         self.refresh_toggles()
 
     def on_module_tree_clean_requested(self, msg: ModuleTree.CleanRequested) -> None:
+        def _on_force(confirmed: bool | None) -> None:
+            if not confirmed:
+                return
+            try:
+                files.clean_module(self.state.module_dir(msg.module), force=True)
+            except RuntimeError as e:
+                self.notify(str(e), severity="error")
+                return
+            self.refresh_files()
+            self.notify(f"Cleaned {msg.module}'s files from $HOME (local changes discarded)")
+
         def _on_result(confirmed: bool | None) -> None:
             if not confirmed:
                 return
             try:
                 files.clean_module(self.state.module_dir(msg.module))
             except RuntimeError as e:
-                self.notify(f"{e} (sync or edit first, then retry)", severity="error")
+                self.refresh_files()  # unchanged files were still removed
+                self.app.push_screen(
+                    ConfirmModal(
+                        "Force clean",
+                        f"{e}.\nRemove these files anyway? Local edits are lost.",
+                        confirm_label="Force clean",
+                        danger=True,
+                    ),
+                    _on_force,
+                )
                 return
             self.refresh_files()
             self.notify(f"Cleaned {msg.module}'s files from $HOME")
@@ -186,6 +206,9 @@ class DashboardScreen(Screen):
         if msg.action == "add":
             self._file_add()
             return
+        if msg.orphan is not None:
+            self._orphan_action(msg.action, msg.orphan)
+            return
         entry = msg.entry
         if entry is None:
             self.notify("No file selected", severity="warning")
@@ -230,6 +253,29 @@ class DashboardScreen(Screen):
         self.notify(f"Synced {entry.spec.path} into the repo")
 
     def _file_deploy(self, entry: files.FileEntry) -> None:
+        if entry.state == files.CHANGED:
+            def _on_result(confirmed: bool | None) -> None:
+                if not confirmed:
+                    return
+                try:
+                    files.deploy_one(entry, overwrite=True)
+                except (OSError, RuntimeError) as e:
+                    self.notify(str(e), severity="error")
+                    return
+                self.refresh_files()
+                self.notify(f"Deployed {entry.spec.path} (local changes replaced)")
+
+            self.app.push_screen(
+                ConfirmModal(
+                    "Overwrite local changes",
+                    f"{entry.spec.path} was edited in $HOME.\n"
+                    "Replace your edits with the repo copy?",
+                    confirm_label="Overwrite",
+                    danger=True,
+                ),
+                _on_result,
+            )
+            return
         try:
             files.deploy_one(entry)
         except (OSError, RuntimeError) as e:
@@ -237,6 +283,45 @@ class DashboardScreen(Screen):
             return
         self.refresh_files()
         self.notify(f"Deployed {entry.spec.path}")
+
+    def _orphan_action(self, action: str, orphan: files.OrphanEntry) -> None:
+        if action == "preview":
+            try:
+                text = orphan.home_path.read_text(errors="replace")
+            except OSError as e:
+                self.notify(str(e), severity="error")
+                return
+            self.query_one(MainPane).show_text(f"{orphan.path} (orphan)", text)
+            return
+        if action == "remove":
+            detail = (
+                "was edited locally after deployment"
+                if orphan.edited
+                else "is unchanged (the next apply removes it anyway)"
+            )
+
+            def _on_result(confirmed: bool | None) -> None:
+                if not confirmed:
+                    return
+                files.remove_orphan(orphan.path)
+                self.refresh_files()
+                self.notify(f"Deleted {orphan.path} from $HOME")
+
+            self.app.push_screen(
+                ConfirmModal(
+                    "Delete orphaned file",
+                    f"{orphan.path} is no longer tracked by any enabled module\n"
+                    f"and {detail}. Delete it from $HOME?",
+                    confirm_label="Delete",
+                    danger=True,
+                ),
+                _on_result,
+            )
+            return
+        self.notify(
+            "Orphaned file — track it into a module (n) or delete it (x)",
+            severity="warning",
+        )
 
     def _file_add(self) -> None:
         module_names = [m.name for m in self.state.modules]
@@ -309,13 +394,16 @@ class DashboardScreen(Screen):
                 return
             files.remove(self.state.module_dir(entry.module), entry)
             self.refresh_files()
-            self.notify(f"Untracked {entry.spec.path} (your $HOME copy is kept)")
+            self.notify(
+                f"Untracked {entry.spec.path} "
+                "($HOME copy is removed on next apply unless you edited it)"
+            )
 
         self.app.push_screen(
             ConfirmModal(
                 "Untrack file",
                 f"Remove {entry.spec.path} from {entry.module}?\n"
-                "The copy in $HOME is not touched.",
+                "The $HOME copy is pruned on the next apply (kept if edited).",
                 confirm_label="Untrack",
                 danger=True,
             ),

@@ -174,6 +174,61 @@ async def test_move_file_between_modules(tui_repo: Path, home: Path):
         assert "shell:.gitconfig" in fl._entries
 
 
+async def test_deploy_overwrite_asks_for_confirmation(tui_repo: Path, home: Path):
+    from dotfiles.tui.screens.confirm import ConfirmModal
+
+    (home / ".gitconfig").write_text("local edit\n")
+    app = DotfilesApp(repo=tui_repo)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("2", "D")  # deploy a CHANGED file
+        assert isinstance(pilot.app.screen, ConfirmModal)
+
+        await pilot.press("y")  # confirm the overwrite
+        await pilot.pause()
+        assert isinstance(pilot.app.screen, DashboardScreen)
+        assert (home / ".gitconfig").read_text() == "[user]\n"
+
+
+async def test_deploy_overwrite_cancel_keeps_edits(tui_repo: Path, home: Path):
+    from dotfiles.tui.screens.confirm import ConfirmModal
+
+    (home / ".gitconfig").write_text("local edit\n")
+    app = DotfilesApp(repo=tui_repo)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("2", "D")
+        assert isinstance(pilot.app.screen, ConfirmModal)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert (home / ".gitconfig").read_text() == "local edit\n"
+
+
+async def test_orphan_row_delete_with_confirmation(tui_repo: Path, home: Path):
+    from dotfiles.core import state
+    from dotfiles.tui.screens.confirm import ConfirmModal
+
+    # An orphan: recorded as deployed, edited locally, tracked by no module.
+    (home / ".orphaned").write_text("edited\n")
+    state.save(
+        {".orphaned": state.DeployedEntry("git", "plain", state.digest(b"original\n"))}
+    )
+    app = DotfilesApp(repo=tui_repo)
+    async with app.run_test(size=(120, 40)) as pilot:
+        fl = pilot.app.screen.query_one(FileList)
+        assert "orphan:.orphaned" in fl._orphans
+        assert fl._orphans["orphan:.orphaned"].edited
+
+        await pilot.press("2")
+        fl.move_cursor(row=fl.get_row_index("orphan:.orphaned"))
+        await pilot.press("x")
+        assert isinstance(pilot.app.screen, ConfirmModal)
+
+        await pilot.press("y")
+        await pilot.pause()
+        assert not (home / ".orphaned").exists()
+        assert state.load() == {}
+        assert "orphan:.orphaned" not in fl._orphans
+
+
 async def test_help_overlay(tui_repo: Path):
     app = DotfilesApp(repo=tui_repo)
     async with app.run_test(size=(120, 40)) as pilot:

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import manifest as mf
+from . import state
 from .agekey import has_key
 from .sops import decrypt_extract, encrypt
 
@@ -111,6 +112,121 @@ def _write_home(dest: Path, data: bytes) -> None:
     os.chmod(dest, 0o600)
 
 
+def _record_deployed(entry: FileEntry, data: bytes) -> None:
+    deployed = state.load()
+    deployed[entry.spec.path] = state.DeployedEntry(
+        entry.module, entry.spec.mode, state.digest(data)
+    )
+    state.save(deployed)
+
+
+def _remove_empty_parents(directory: Path, stop: Path) -> None:
+    """rmdir the directory and its parents while empty, up to (not incl.) stop."""
+    d = directory
+    while d != stop and d.is_relative_to(stop):
+        try:
+            d.rmdir()
+        except OSError:
+            return
+        d = d.parent
+
+
+def desired_paths(modules: list[tuple[Path, set[str]]]) -> set[str]:
+    """The $HOME-relative paths that should exist: every tracked file of the
+    given (module_dir, disabled_children) pairs. Single source of truth for
+    both switch-time prune (activate.py deploy-all) and the TUI's orphan
+    detection — anything deployed but not in this set is an orphan.
+    """
+    desired: set[str] = set()
+    for module_dir, disabled in modules:
+        desired.update(
+            s.path for s in mf.load(module_dir) if s.child not in disabled
+        )
+    return desired
+
+
+@dataclass(frozen=True)
+class OrphanEntry:
+    """A deployed file that no longer belongs to any enabled module."""
+
+    path: str  # $HOME-relative
+    module: str  # last recorded owner (informational)
+    mode: str
+    edited: bool  # content differs from what was deployed
+
+    @property
+    def home_path(self) -> Path:
+        return Path.home() / self.path
+
+
+def orphans(desired: set[str] | frozenset[str]) -> list[OrphanEntry]:
+    """Deployed-state entries outside the desired set whose file still exists.
+
+    Non-edited orphans vanish on the next switch (prune removes them);
+    edited ones need a user decision in the TUI: track (n) or delete (x).
+    """
+    home = Path.home()
+    result: list[OrphanEntry] = []
+    for rel, entry in state.load().items():
+        if rel in desired:
+            continue
+        dest = home / rel
+        if not dest.exists():
+            continue  # prune drops the entry on the next switch
+        edited = state.digest(dest.read_bytes()) != entry.sha256
+        result.append(OrphanEntry(rel, entry.module, entry.mode, edited))
+    return result
+
+
+def remove_orphan(rel: str) -> None:
+    """Delete an orphaned file from $HOME regardless of local edits.
+
+    The force override for prune's anti-clobber — only call after the user
+    confirmed (TUI dialog).
+    """
+    dest = Path.home() / rel
+    if dest.exists():
+        dest.unlink()
+        _remove_empty_parents(dest.parent, Path.home())
+    deployed = state.load()
+    deployed.pop(rel, None)
+    state.save(deployed)
+    print(f"files: removed orphan {rel} from $HOME", flush=True)
+
+
+def prune(desired: set[str] | frozenset[str], force: bool = False) -> None:
+    """Remove previously deployed files that fell out of the desired set.
+
+    `desired` holds $HOME-relative paths that should stay (every tracked
+    file of every enabled module). Anything else recorded in the deployed
+    state is deleted from $HOME — this is what makes disabling a module or
+    untracking a file declarative.
+
+    Anti-clobber: a file whose current content no longer matches the hash
+    recorded at deploy time was edited by the user; it is kept (with a
+    warning, repeated every switch) unless force=True. Comparison is pure
+    hashing, so pruning secrets needs no sops/age key.
+    """
+    home = Path.home()
+    deployed = state.load()
+
+    for rel in [r for r in deployed if r not in desired]:
+        dest = home / rel
+        if not dest.exists():
+            del deployed[rel]
+            continue
+        if not force and state.digest(dest.read_bytes()) != deployed[rel].sha256:
+            print(f"Warning: {rel} has local changes; kept.", flush=True)
+            print("         Resolve in the TUI: track it (n) or delete it (x).", flush=True)
+            continue
+        dest.unlink()
+        _remove_empty_parents(dest.parent, home)
+        del deployed[rel]
+        print(f"files: pruned {rel} from $HOME", flush=True)
+
+    state.save(deployed)
+
+
 def deploy_module(
     module_dir: Path,
     overwrite: bool = False,
@@ -126,9 +242,15 @@ def deploy_module(
     activation passes skip_secrets=True when no age key is present and
     disabled_children for child toggles that are off, so their files are
     not deployed.
+
+    Every file that ends up matching the repo (freshly written or already
+    in sync) is recorded in the deployed state so prune() can later remove
+    it declaratively. Skipped secrets and conflicts keep whatever state
+    entry they already have.
     """
     home = Path.home()
     conflicts: list[str] = []
+    deployed = state.load()
 
     for spec in mf.load(module_dir):
         storage = mf.storage_path(module_dir, spec)
@@ -148,9 +270,11 @@ def deploy_module(
 
         data = repo_bytes(spec, storage, sops_bin, age_key)
         dest = home / spec.path
+        entry = state.DeployedEntry(module_dir.name, spec.mode, state.digest(data))
 
         if dest.exists():
             if data == dest.read_bytes():
+                deployed[spec.path] = entry
                 continue
             if not overwrite:
                 print(f"Error: {spec.path} has local changes.", flush=True)
@@ -160,8 +284,10 @@ def deploy_module(
             print(f"Warning: overwriting {spec.path} (overwrite=True).", flush=True)
 
         _write_home(dest, data)
+        deployed[spec.path] = entry
         print(f"files: deployed {spec.path}", flush=True)
 
+    state.save(deployed)
     if conflicts:
         raise RuntimeError(f"Conflicts, sync first: {', '.join(conflicts)}")
 
@@ -175,10 +301,12 @@ def clean_module(
     """Remove $HOME copies of every tracked file (opposite of deploy_module).
 
     Anti-clobber: a $HOME file that differs from the repo copy (or a locked
-    secret) is skipped unless force=True.
+    secret) is skipped unless force=True. Removed files are also dropped
+    from the deployed state.
     """
     home = Path.home()
     conflicts: list[str] = []
+    deployed = state.load()
 
     for spec in mf.load(module_dir):
         storage = mf.storage_path(module_dir, spec)
@@ -204,10 +332,12 @@ def clean_module(
                 continue
 
         dest.unlink()
+        deployed.pop(spec.path, None)
         print(f"files: removed {spec.path} from $HOME", flush=True)
 
+    state.save(deployed)
     if conflicts:
-        raise RuntimeError(f"Conflicts, use --force: {', '.join(conflicts)}")
+        raise RuntimeError(f"Conflicts, local changes: {', '.join(conflicts)}")
 
 
 def deploy_one(
@@ -222,6 +352,7 @@ def deploy_one(
     if dest.exists() and data != dest.read_bytes() and not overwrite:
         raise RuntimeError(f"{entry.spec.path} has local changes; diff/sync first")
     _write_home(dest, data)
+    _record_deployed(entry, data)
     print(f"files: deployed {entry.spec.path}", flush=True)
 
 
@@ -230,16 +361,22 @@ def sync(
     sops_bin: str | None = None,
     age_key: Path | None = None,
 ) -> None:
-    """Copy/re-encrypt the $HOME copy back into the repo ($HOME → repo)."""
+    """Copy/re-encrypt the $HOME copy back into the repo ($HOME → repo).
+
+    Also refreshes the deployed-state hash: after a sync the $HOME copy is
+    the repo content again, so it must count as cleanly deployed (prunable).
+    """
     src = entry.home_path
     if not src.exists():
         raise FileNotFoundError(f"File not found: {src}")
+    data = src.read_bytes()
     if entry.is_secret:
-        encrypt(src.read_bytes(), entry.storage, mf.secret_key_name(entry.spec),
+        encrypt(data, entry.storage, mf.secret_key_name(entry.spec),
                 sops_bin, age_key)
     else:
         entry.storage.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, entry.storage)
+    _record_deployed(entry, data)
     print(f"files: synced {entry.spec.path}", flush=True)
 
 

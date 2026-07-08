@@ -17,17 +17,21 @@ KEYS = """\
   space            toggle module or component (saved immediately)
   x                clear local override (back to preset value)
   c                clean — remove module's tracked files from $HOME
+                   (edited files are kept unless you confirm a force clean)
   N                create a new module (enabled on this machine)
 
 [b]Files panel[/b]
   enter            preview file in main pane
   d                diff repo vs $HOME
   s                sync ↑ ($HOME → repo, re-encrypts secrets)
-  D                deploy ↓ (repo → $HOME, refuses to clobber changes)
+  D                deploy ↓ (repo → $HOME, asks before overwriting edits)
   n                track a new file (plain or secret)
   m                move file to another module (repo-side, no re-encrypt)
-  x                untrack ($HOME copy kept)
+  x                untrack ($HOME copy pruned on next apply) · delete orphan
   e                open $HOME copy in $EDITOR
+
+  Orphan rows (mode O) are deployed files no module tracks anymore:
+  † unchanged — removed on next apply · ! edited — track (n) or delete (x)
 
 [b]Global[/b]
   a                apply — home-manager switch (live log in main pane)

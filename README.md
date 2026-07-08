@@ -93,7 +93,9 @@ The only difference between the two modes is encryption at rest:
 - **plain** — committed verbatim.
 - **secret** — sops-encrypted with your age key; decrypted on activation.
 
-Track a new file with `n` in the TUI (pick the file, module, and mode), then commit the result. Deploys never clobber local changes — diff/sync first, or rerun with overwrite.
+Track a new file with `n` in the TUI (pick the file, module, and mode), then commit the result. Deploys never clobber local changes silently — diff/sync first, or confirm the overwrite when deploying from the TUI.
+
+Deployment is declarative: every deployed file is recorded (path + content hash) in `~/.local/state/dotfiles/deployed.json`, and the next `home-manager switch` prunes anything that fell out of the desired set — a disabled module or child, an untracked file, a deleted module. Files you edited locally are never pruned automatically; they show up as **orphans** in the TUI's files panel, where you resolve them — track the file into a module (`n`) or delete it (`x`) behind a confirmation dialog.
 
 ---
 
@@ -150,7 +152,7 @@ dotfiles/
 │   ├── modules.nix            # module auto-discovery (single source of truth)
 │   ├── module-options.nix     # module.json → dotfiles.<mod>.<child>.enable options
 │   ├── profile.nix            # preset + overrides resolution at eval time
-│   └── files-activation.nix   # auto-wired deploy activation per module
+│   └── files-activation.nix   # deploy + prune activation (declarative undeploy)
 ├── modules/<name>/
 │   ├── default.nix            # options from module.json; one mkIf block per child
 │   ├── module.json            # description + children (read by Nix AND the TUI)

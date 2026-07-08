@@ -103,7 +103,7 @@ in
       # Runs after the shared files activation (lib/files-activation.nix)
       # decrypted ~/.ssh/id_ed25519, deriving the pubkey + allowed_signers.
       home.activation.setupSshPublicKey =
-        lib.hm.dag.entryAfter [ "dotfilesFiles_vcs" ] ''
+        lib.hm.dag.entryAfter [ "dotfilesFiles" ] ''
           ${pkgs.python3}/bin/python3 "${../../pkg}/dotfiles/activate.py" pubkey \
             --ssh-keygen "${pkgs.openssh}/bin/ssh-keygen" \
             --email "${cfg.user.email}"

@@ -1,4 +1,9 @@
-"""Panel 2: tracked files across all modules (plain + secret unified)."""
+"""Panel 2: tracked files across all modules (plain + secret unified).
+
+Also lists orphans — files recorded in the deployed state that no enabled
+module tracks anymore. Clean orphans just announce that the next apply
+removes them; edited ones wait for a decision (track with n, delete with x).
+"""
 from __future__ import annotations
 
 from rich.text import Text
@@ -32,15 +37,22 @@ class FileList(DataTable):
     ]
 
     class Action(Message):
-        def __init__(self, action: str, entry: files.FileEntry | None) -> None:
+        def __init__(
+            self,
+            action: str,
+            entry: files.FileEntry | None,
+            orphan: files.OrphanEntry | None = None,
+        ) -> None:
             super().__init__()
             self.action = action
             self.entry = entry
+            self.orphan = orphan
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.cursor_type = "row"
         self._entries: dict[str, files.FileEntry] = {}
+        self._orphans: dict[str, files.OrphanEntry] = {}
 
     def on_mount(self) -> None:
         self.add_column("mod", key="module")
@@ -54,6 +66,7 @@ class FileList(DataTable):
             prev_key = self.coordinate_to_cell_key((self.cursor_row, 0)).row_key.value
         self.clear()
         self._entries = {}
+        self._orphans = {}
         for entry in state.entries:
             key = f"{entry.module}:{entry.spec.path}"
             self._entries[key] = entry
@@ -66,14 +79,33 @@ class FileList(DataTable):
                 Text(glyph, style=style),
                 key=key,
             )
-        if prev_key is not None and prev_key in self._entries:
+        for orphan in state.orphans:
+            key = f"orphan:{orphan.path}"
+            self._orphans[key] = orphan
+            # Edited orphans need a decision; clean ones go on next apply.
+            glyph, style = ("!", "yellow") if orphan.edited else ("†", "dim")
+            self.add_row(
+                Text(f"({orphan.module})", style="dim strike"),
+                Text("O", style="dim"),
+                Text(orphan.path, style="" if orphan.edited else "dim"),
+                Text(glyph, style=style),
+                key=key,
+            )
+        if prev_key is not None and (prev_key in self._entries or prev_key in self._orphans):
             self.move_cursor(row=self.get_row_index(prev_key))
 
-    def current_entry(self) -> files.FileEntry | None:
+    def _current_key(self) -> str | None:
         if not self.row_count or self.cursor_row < 0:
             return None
-        key = self.coordinate_to_cell_key((self.cursor_row, 0)).row_key.value
-        return self._entries.get(key)
+        return self.coordinate_to_cell_key((self.cursor_row, 0)).row_key.value
+
+    def current_entry(self) -> files.FileEntry | None:
+        key = self._current_key()
+        return self._entries.get(key) if key else None
+
+    def current_orphan(self) -> files.OrphanEntry | None:
+        key = self._current_key()
+        return self._orphans.get(key) if key else None
 
     def action_file_action(self, action: str) -> None:
-        self.post_message(self.Action(action, self.current_entry()))
+        self.post_message(self.Action(action, self.current_entry(), self.current_orphan()))

@@ -39,3 +39,7 @@ def state_dir() -> Path:
 
 def profile_path() -> Path:
     return state_dir() / "profile.json"
+
+
+def deployed_path() -> Path:
+    return state_dir() / "deployed.json"
