@@ -66,6 +66,8 @@ def status(
             raise FileNotFoundError(
                 f"{module_dir.name}: manifest lists {spec.path} but {storage} is missing"
             )
+        if spec.fragment:
+            continue  # composed targets are listed via fragment_entries()
         dest = home / spec.path
         if not dest.exists():
             state = MISSING
@@ -136,6 +138,10 @@ def desired_paths(modules: list[tuple[Path, set[str]]]) -> set[str]:
     given (module_dir, disabled_children) pairs. Single source of truth for
     both switch-time prune (activate.py deploy-all) and the TUI's orphan
     detection — anything deployed but not in this set is an orphan.
+
+    Fragment specs contribute their target path like any other entry, so a
+    composed file stays desired while at least one enabled module still
+    contributes a non-disabled fragment.
     """
     desired: set[str] = set()
     for module_dir, disabled in modules:
@@ -143,6 +149,206 @@ def desired_paths(modules: list[tuple[Path, set[str]]]) -> set[str]:
             s.path for s in mf.load(module_dir) if s.child not in disabled
         )
     return desired
+
+
+@dataclass(frozen=True)
+class Fragment:
+    """One module's contribution to a composed target file."""
+
+    module: str
+    spec: mf.FileSpec
+    storage: Path
+
+
+def partition_targets(
+    modules: list[tuple[Path, set[str]]],
+) -> tuple[dict[str, list[Fragment]], list[str]]:
+    """Group the enabled fragment specs by target path.
+
+    Returns (targets, errors). A target path must be either whole-file
+    (exactly one owner — today's behavior) or all-fragments; a path with
+    both kinds of contributors, or with two whole-file owners, is a config
+    error. Only the enabled, non-disabled-child set is considered — a
+    disabled module's conflicting entry surfaces once it is enabled.
+    """
+    targets: dict[str, list[Fragment]] = {}
+    whole_owners: dict[str, list[str]] = {}
+    for module_dir, disabled in modules:
+        for spec in mf.load(module_dir):
+            if spec.child in disabled:
+                continue
+            if spec.fragment:
+                targets.setdefault(spec.path, []).append(
+                    Fragment(module_dir.name, spec, mf.storage_path(module_dir, spec))
+                )
+            else:
+                whole_owners.setdefault(spec.path, []).append(module_dir.name)
+
+    errors: list[str] = []
+    for path, owners in sorted(whole_owners.items()):
+        if path in targets:
+            frag_mods = ", ".join(sorted(f.module for f in targets[path]))
+            errors.append(
+                f"{path}: tracked whole-file by {', '.join(owners)} but as a "
+                f"fragment by {frag_mods} — pick one style"
+            )
+        elif len(owners) > 1:
+            errors.append(f"{path}: tracked whole-file by multiple modules: "
+                          f"{', '.join(owners)}")
+    return targets, errors
+
+
+def compose(
+    fragments: list[Fragment],
+    sops_bin: str | None = None,
+    age_key: Path | None = None,
+) -> bytes:
+    """Concatenate a target's fragments deterministically.
+
+    Sorted by (order, module); each block trimmed to no trailing newline,
+    empty blocks dropped, one blank line between blocks, single trailing
+    newline.
+    """
+    parts = [
+        repo_bytes(f.spec, f.storage, sops_bin, age_key).rstrip(b"\n")
+        for f in sorted(fragments, key=lambda f: (f.spec.order, f.module))
+    ]
+    parts = [p for p in parts if p]
+    return b"\n\n".join(parts) + b"\n" if parts else b""
+
+
+def _composed_entry(fragments: list[Fragment], data: bytes) -> state.DeployedEntry:
+    modules = "+".join(sorted({f.module for f in fragments}))
+    mode = (
+        mf.MODE_SECRET
+        if any(f.spec.mode == mf.MODE_SECRET for f in fragments)
+        else mf.MODE_PLAIN
+    )
+    return state.DeployedEntry(modules, mode, state.digest(data))
+
+
+def deploy_fragments(
+    targets: dict[str, list[Fragment]],
+    overwrite: bool = False,
+    sops_bin: str | None = None,
+    age_key: Path | None = None,
+    skip_secrets: bool = False,
+) -> None:
+    """Deploy every composed target (fragments from partition_targets).
+
+    A target with any secret fragment is skipped whole while no age key is
+    available — a partial composition is never written; the path stays in
+    desired_paths so prune leaves the existing copy alone.
+
+    Anti-clobber is hash-aware: a destination that still matches the hash
+    recorded at deploy time is rewritten silently when the composition
+    changes (fragment edited, contributor added/removed) — only a
+    user-edited destination is a conflict. This also migrates a previously
+    whole-file-deployed path to fragments without a false conflict.
+    """
+    home = Path.home()
+    conflicts: list[str] = []
+    deployed = state.load()
+
+    for path in sorted(targets):
+        frags = targets[path]
+        for f in frags:
+            if not f.storage.exists():
+                raise FileNotFoundError(
+                    f"{f.module}: manifest lists {f.spec.path} but {f.storage} is missing"
+                )
+        if skip_secrets and any(f.spec.mode == mf.MODE_SECRET for f in frags):
+            locked = ", ".join(
+                sorted(f.module for f in frags if f.spec.mode == mf.MODE_SECRET)
+            )
+            print(
+                f"files: skipped composed {path} (secret fragment from {locked}, no age key)",
+                flush=True,
+            )
+            continue
+
+        data = compose(frags, sops_bin, age_key)
+        dest = home / path
+        entry = _composed_entry(frags, data)
+
+        if dest.exists():
+            current = dest.read_bytes()
+            if current == data:
+                deployed[path] = entry
+                continue
+            prev = deployed.get(path)
+            edited = prev is None or state.digest(current) != prev.sha256
+            if edited and not overwrite:
+                print(f"Error: {path} has local changes.", flush=True)
+                print("       Use the TUI to diff/sync first.", flush=True)
+                conflicts.append(path)
+                continue
+            if edited:
+                print(f"Warning: overwriting {path} (overwrite=True).", flush=True)
+
+        _write_home(dest, data)
+        deployed[path] = entry
+        print(f"files: deployed {path} (composed from {entry.module})", flush=True)
+
+    state.save(deployed)
+    if conflicts:
+        raise RuntimeError(f"Conflicts, sync first: {', '.join(conflicts)}")
+
+
+def fragment_entries(
+    modules: list[tuple[Path, set[str]]],
+    sops_bin: str | None = None,
+    age_key: Path | None = None,
+) -> list[FileEntry]:
+    """TUI rows for composed targets: one entry per (module, fragment).
+
+    The state is computed per target — composed expectation vs the $HOME
+    copy — so every contributing module's row shows the same state.
+    """
+    home = Path.home()
+    targets, _ = partition_targets(modules)
+    entries: list[FileEntry] = []
+    for path in sorted(targets):
+        frags = targets[path]
+        for f in frags:
+            if not f.storage.exists():
+                raise FileNotFoundError(
+                    f"{f.module}: manifest lists {f.spec.path} but {f.storage} is missing"
+                )
+        dest = home / path
+        has_secret = any(f.spec.mode == mf.MODE_SECRET for f in frags)
+        if not dest.exists():
+            target_state = MISSING
+        elif has_secret and not has_key(age_key):
+            target_state = LOCKED
+        else:
+            expected = compose(frags, sops_bin, age_key)
+            target_state = IN_SYNC if expected == dest.read_bytes() else CHANGED
+        entries.extend(
+            FileEntry(f.module, f.spec, f.storage, target_state) for f in frags
+        )
+    return entries
+
+
+def diff_composed(
+    path: str,
+    fragments: list[Fragment],
+    sops_bin: str | None = None,
+    age_key: Path | None = None,
+) -> str:
+    """Unified diff: composed expectation vs the $HOME copy."""
+    expected = compose(fragments, sops_bin, age_key).decode("utf-8", errors="replace")
+    hp = Path.home() / path
+    home_text = hp.read_text(errors="replace") if hp.exists() else ""
+    lines = list(
+        difflib.unified_diff(
+            expected.splitlines(keepends=True),
+            home_text.splitlines(keepends=True),
+            fromfile=f"composed:{path}",
+            tofile=f"home:{path}",
+        )
+    )
+    return "".join(lines) if lines else "(no differences)"
 
 
 @dataclass(frozen=True)
@@ -258,6 +464,12 @@ def deploy_module(
             raise FileNotFoundError(
                 f"{module_dir.name}: manifest lists {spec.path} but {storage} is missing"
             )
+        if spec.fragment:
+            print(
+                f"files: skipped fragment {spec.path} (composed at deploy-all/apply time)",
+                flush=True,
+            )
+            continue
         if spec.child in disabled_children:
             print(
                 f"files: skipped {spec.path} (child '{spec.child}' disabled)",
@@ -314,6 +526,14 @@ def clean_module(
             raise FileNotFoundError(
                 f"{module_dir.name}: manifest lists {spec.path} but {storage} is missing"
             )
+        if spec.fragment:
+            # Other modules may contribute to the composed file; it is
+            # pruned by deploy-all once no contributor remains.
+            print(
+                f"files: skipped fragment {spec.path} (composed file, see deploy-all)",
+                flush=True,
+            )
+            continue
         dest = home / spec.path
         if not dest.exists():
             continue
@@ -347,6 +567,11 @@ def deploy_one(
     age_key: Path | None = None,
 ) -> None:
     """Deploy a single tracked file (repo → $HOME), same guard as deploy_module."""
+    if entry.spec.fragment:
+        raise ValueError(
+            f"{entry.spec.path} is a fragment; deploy the composed file "
+            "via deploy_fragments"
+        )
     data = repo_bytes(entry.spec, entry.storage, sops_bin, age_key)
     dest = entry.home_path
     if dest.exists() and data != dest.read_bytes() and not overwrite:
@@ -366,6 +591,11 @@ def sync(
     Also refreshes the deployed-state hash: after a sync the $HOME copy is
     the repo content again, so it must count as cleanly deployed (prunable).
     """
+    if entry.spec.fragment:
+        raise ValueError(
+            f"{entry.spec.path} is composed from fragments; sync is ambiguous — "
+            "edit the repo fragment and apply instead"
+        )
     src = entry.home_path
     if not src.exists():
         raise FileNotFoundError(f"File not found: {src}")

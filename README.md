@@ -95,6 +95,21 @@ The only difference between the two modes is encryption at rest:
 
 Track a new file with `n` in the TUI (pick the file, module, and mode), then commit the result. Deploys never clobber local changes silently — diff/sync first, or confirm the overwrite when deploying from the TUI.
 
+### Composed files (fragments)
+
+One `$HOME` file can be assembled from blocks contributed by several modules: mark each entry with `"fragment": true` (and an optional `"order"`, default 100) in the contributing modules' `files.json`. At apply time the enabled fragments are concatenated — sorted by `order`, then module name, with a blank line between blocks — into the single target file:
+
+```json
+// modules/devenv/files.json — base block
+{ "path": ".claude/CLAUDE.md", "mode": "plain", "child": "ai", "fragment": true, "order": 10 }
+// modules/work/files.json — appended only when work is enabled
+{ "path": ".claude/CLAUDE.md", "mode": "plain", "fragment": true, "order": 50 }
+```
+
+Each module stores its own block under its `files/` dir (a fragment may be `secret` — it is decrypted before composing; if the age key is missing the whole target is skipped rather than deployed half-built). A path is either whole-file (one owner) or all-fragments — mixing the two styles is a config error caught before anything deploys. Fragments show as `F` in the TUI files panel; sync `$HOME → repo` is disabled for them — edit the module's fragment (`e`) and apply instead. Disabling a contributor rewrites the composed file without it on the next apply; when the last one goes, the file is pruned.
+
+For formats with an include mechanism (like fish's `conf.d/`), tracking a separate per-module file is simpler than composing one — fragments are for single-file formats like `CLAUDE.md`.
+
 Deployment is declarative: every deployed file is recorded (path + content hash) in `~/.local/state/dotfiles/deployed.json`, and the next `home-manager switch` prunes anything that fell out of the desired set — a disabled module or child, an untracked file, a deleted module. Files you edited locally are never pruned automatically; they show up as **orphans** in the TUI's files panel, where you resolve them — track the file into a module (`n`) or delete it (`x`) behind a confirmation dialog.
 
 ---

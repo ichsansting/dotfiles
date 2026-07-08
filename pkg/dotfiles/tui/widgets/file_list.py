@@ -71,7 +71,13 @@ class FileList(DataTable):
             key = f"{entry.module}:{entry.spec.path}"
             self._entries[key] = entry
             glyph, style = _STATE_STYLE[entry.state]
-            mode = Text("S", style="magenta") if entry.is_secret else Text("P", style="cyan")
+            if entry.spec.fragment:
+                # Fragment of a composed file; color still tells plain/secret.
+                mode = Text("F", style="magenta" if entry.is_secret else "cyan")
+            elif entry.is_secret:
+                mode = Text("S", style="magenta")
+            else:
+                mode = Text("P", style="cyan")
             self.add_row(
                 Text(entry.module, style="dim"),
                 mode,

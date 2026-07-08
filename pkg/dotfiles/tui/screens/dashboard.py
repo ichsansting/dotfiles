@@ -237,13 +237,26 @@ class DashboardScreen(Screen):
 
     def _file_diff(self, entry: files.FileEntry) -> None:
         try:
-            text = files.diff(entry)
-        except (OSError, RuntimeError) as e:
+            if entry.spec.fragment:
+                frags = self.state.fragment_targets[entry.spec.path]
+                text = files.diff_composed(entry.spec.path, frags)
+                title = f"diff {entry.spec.path} (composed)"
+            else:
+                text = files.diff(entry)
+                title = f"diff {entry.spec.path}"
+        except (OSError, RuntimeError, KeyError) as e:
             self.notify(str(e), severity="error")
             return
-        self.query_one(MainPane).show_text(f"diff {entry.spec.path}", text)
+        self.query_one(MainPane).show_text(title, text)
 
     def _file_sync(self, entry: files.FileEntry) -> None:
+        if entry.spec.fragment:
+            self.notify(
+                "Sync is disabled for composed files — edit the repo fragment "
+                "(e) and apply instead",
+                severity="warning",
+            )
+            return
         try:
             files.sync(entry)
         except (OSError, RuntimeError, ValueError) as e:
@@ -252,18 +265,34 @@ class DashboardScreen(Screen):
         self.refresh_files()
         self.notify(f"Synced {entry.spec.path} into the repo")
 
+    def _deploy_entry(self, entry: files.FileEntry, overwrite: bool) -> bool:
+        """Deploy one row: the composed target for fragments, else the file."""
+        try:
+            if entry.spec.fragment:
+                frags = self.state.fragment_targets[entry.spec.path]
+                files.deploy_fragments(
+                    {entry.spec.path: frags}, overwrite=overwrite
+                )
+            elif overwrite:
+                files.deploy_one(entry, overwrite=True)
+            else:
+                files.deploy_one(entry)
+        except (OSError, RuntimeError, KeyError) as e:
+            self.notify(str(e), severity="error")
+            return False
+        return True
+
     def _file_deploy(self, entry: files.FileEntry) -> None:
+        if entry.state == files.LOCKED:
+            self.notify("No age key — restore or generate one first", severity="warning")
+            return
         if entry.state == files.CHANGED:
             def _on_result(confirmed: bool | None) -> None:
                 if not confirmed:
                     return
-                try:
-                    files.deploy_one(entry, overwrite=True)
-                except (OSError, RuntimeError) as e:
-                    self.notify(str(e), severity="error")
-                    return
-                self.refresh_files()
-                self.notify(f"Deployed {entry.spec.path} (local changes replaced)")
+                if self._deploy_entry(entry, overwrite=True):
+                    self.refresh_files()
+                    self.notify(f"Deployed {entry.spec.path} (local changes replaced)")
 
             self.app.push_screen(
                 ConfirmModal(
@@ -276,13 +305,9 @@ class DashboardScreen(Screen):
                 _on_result,
             )
             return
-        try:
-            files.deploy_one(entry)
-        except (OSError, RuntimeError) as e:
-            self.notify(str(e), severity="error")
-            return
-        self.refresh_files()
-        self.notify(f"Deployed {entry.spec.path}")
+        if self._deploy_entry(entry, overwrite=False):
+            self.refresh_files()
+            self.notify(f"Deployed {entry.spec.path}")
 
     def _orphan_action(self, action: str, orphan: files.OrphanEntry) -> None:
         if action == "preview":
@@ -415,9 +440,19 @@ class DashboardScreen(Screen):
         if not editor:
             self.notify("$EDITOR is not set (enable the env module)", severity="warning")
             return
+        # Fragments: edit the repo copy — the composed $HOME file cannot be
+        # synced back. Secret fragments would need decrypt/re-encrypt.
+        if entry.spec.fragment and entry.is_secret:
+            self.notify(
+                "Editing secret fragments is not supported yet — untrack and "
+                "re-add, or edit with sops directly",
+                severity="warning",
+            )
+            return
+        target = entry.storage if entry.spec.fragment else entry.home_path
         try:
             with self.app.suspend():
-                subprocess.run([editor, str(entry.home_path)], check=False)
+                subprocess.run([editor, str(target)], check=False)
         except FileNotFoundError:
             self.notify(f"Editor not found: {editor}", severity="error")
             return

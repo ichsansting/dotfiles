@@ -13,10 +13,14 @@ and no PYTHONPATH:
     activate.py pubkey --ssh-keygen <bin> --email <addr>
 
 `deploy-all` is what lib/files-activation.nix runs at switch time: it
-deploys the tracked files of every --enable'd module, then prunes files
-recorded in ~/.local/state/dotfiles/deployed.json that are no longer
-desired (module/child disabled, file untracked, module deleted) — so
-undeploy is declarative. Files with local edits are never overwritten or
+deploys the tracked files of every --enable'd module, composes fragment
+targets (one $HOME file assembled from blocks contributed by several
+modules, ordered by their manifest `order`), then prunes files recorded
+in ~/.local/state/dotfiles/deployed.json that are no longer desired
+(module/child disabled, file untracked, module deleted) — so undeploy is
+declarative. A path tracked whole-file by one module and as a fragment
+by another (or whole-file by two modules) is a config error: exit 2
+before anything is deployed. Files with local edits are never overwritten or
 pruned here, only warned about — overwrite/force decisions are made per
 file in the TUI, behind confirmation dialogs. A conflict in one module
 doesn't stop the others; the exit code is non-zero if any module had
@@ -59,6 +63,10 @@ def _cmd_deploy_all(args: argparse.Namespace) -> int:
         disabled.setdefault(module, set()).add(child)
 
     enabled = [(modules_root / n, disabled.get(n, set())) for n in args.enable]
+    frag_targets, errors = files.partition_targets(enabled)
+    if errors:
+        print("Error: " + "; ".join(errors), flush=True)
+        return 2
     desired = files.desired_paths(enabled)
     conflicts: list[str] = []
     for module_dir, mod_disabled in enabled:
@@ -73,6 +81,13 @@ def _cmd_deploy_all(args: argparse.Namespace) -> int:
             )
         except RuntimeError as e:
             conflicts.append(f"{module_dir.name}: {e}")
+
+    try:
+        files.deploy_fragments(
+            frag_targets, sops_bin=args.sops_bin, skip_secrets=skip_secrets
+        )
+    except RuntimeError as e:
+        conflicts.append(f"composed: {e}")
 
     files.prune(desired)
 

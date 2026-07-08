@@ -5,6 +5,12 @@
       "mode": "secret"
     },
     {
+      "path": ".claude/CLAUDE.md",
+      "mode": "plain",
+      "fragment": true,
+      "order": 50
+    },
+    {
       "path": ".config/fish/conf.d/traveloka-secrets.fish",
       "mode": "secret"
     },

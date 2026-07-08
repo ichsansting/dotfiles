@@ -3,7 +3,9 @@
     {
       "path": ".claude/CLAUDE.md",
       "mode": "plain",
-      "child": "ai"
+      "child": "ai",
+      "fragment": true,
+      "order": 10
     },
     {
       "path": ".claude/settings.json",

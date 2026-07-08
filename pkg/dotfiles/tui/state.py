@@ -18,6 +18,7 @@ class AppState:
     resolved: Resolved | None = None
     entries: list[files.FileEntry] = field(default_factory=list)
     orphans: list[files.OrphanEntry] = field(default_factory=list)
+    fragment_targets: dict[str, list[files.Fragment]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
     def reload(self) -> None:
@@ -43,10 +44,17 @@ class AppState:
                 self.entries.extend(files.status(mod.path))
             except (FileNotFoundError, RuntimeError) as e:
                 self.errors.append(str(e))
-        self.orphans = files.orphans(self._desired_paths())
+        enabled = self._enabled_modules()
+        self.fragment_targets, frag_errors = files.partition_targets(enabled)
+        self.errors.extend(frag_errors)
+        try:
+            self.entries.extend(files.fragment_entries(enabled))
+        except (FileNotFoundError, RuntimeError) as e:
+            self.errors.append(str(e))
+        self.orphans = files.orphans(files.desired_paths(enabled))
 
-    def _desired_paths(self) -> set[str]:
-        """Mirror of what deploy-all keeps at switch time (see activate.py)."""
+    def _enabled_modules(self) -> list[tuple[Path, set[str]]]:
+        """Mirror of what deploy-all sees at switch time (see activate.py)."""
         assert self.resolved is not None
         enabled: list[tuple[Path, set[str]]] = []
         for mod in self.modules:
@@ -55,7 +63,7 @@ class AppState:
                 continue
             disabled = {c for c, on in toggle.children.items() if not on}
             enabled.append((mod.path, disabled))
-        return files.desired_paths(enabled)
+        return enabled
 
     def save(self) -> None:
         profile.save_state(self.machine)

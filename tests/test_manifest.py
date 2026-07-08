@@ -63,3 +63,31 @@ def test_spec_validation():
         mf.FileSpec("../escape", mf.MODE_PLAIN)
     with pytest.raises(ValueError):
         mf.FileSpec(".aws/config", "encrypted")
+    # order only makes sense on fragments
+    with pytest.raises(ValueError, match="order"):
+        mf.FileSpec(".aws/config", mf.MODE_PLAIN, order=10)
+
+
+def test_roundtrip_fragment_fields(module_dir: Path):
+    specs = [
+        mf.FileSpec(".claude/CLAUDE.md", mf.MODE_PLAIN, fragment=True, order=10),
+        mf.FileSpec(".gitconfig", mf.MODE_PLAIN),
+        mf.FileSpec(".zshrc", mf.MODE_PLAIN, fragment=True),  # default order
+    ]
+    mf.save(module_dir, specs)
+    loaded = {s.path: s for s in mf.load(module_dir)}
+    assert loaded[".claude/CLAUDE.md"].fragment is True
+    assert loaded[".claude/CLAUDE.md"].order == 10
+    assert loaded[".gitconfig"].fragment is False
+    assert loaded[".gitconfig"].order == mf.DEFAULT_ORDER
+    assert loaded[".zshrc"].fragment is True
+    assert loaded[".zshrc"].order == mf.DEFAULT_ORDER
+
+    # defaults stay out of the JSON: existing manifests remain byte-identical
+    raw = json.loads(mf.manifest_path(module_dir).read_text())
+    by_path = {e["path"]: e for e in raw["files"]}
+    assert "fragment" not in by_path[".gitconfig"]
+    assert "order" not in by_path[".gitconfig"]
+    assert by_path[".claude/CLAUDE.md"]["fragment"] is True
+    assert by_path[".claude/CLAUDE.md"]["order"] == 10
+    assert "order" not in by_path[".zshrc"]
