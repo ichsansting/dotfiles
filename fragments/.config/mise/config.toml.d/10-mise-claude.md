@@ -1,0 +1,1 @@
+tools.claude-code = "latest"

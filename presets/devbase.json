@@ -1,0 +1,5 @@
+{
+  "base": "default",
+  "bundles": ["devenv", "mise-rust", "mise-node", "mise-python", "mise-claude", "mise-misc"],
+  "settings": {}
+}

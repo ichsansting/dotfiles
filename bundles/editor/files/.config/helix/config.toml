@@ -1,0 +1,21 @@
+theme = "catppuccin_mocha"
+
+[editor]
+auto-pairs = true
+line-number = "relative"
+
+[editor.file-picker]
+hidden = false
+
+[editor.indent-guides]
+render = true
+
+[editor.cursor-shape]
+insert = "bar"
+normal = "block"
+select = "underline"
+
+[editor.statusline]
+left = ["mode", "spinner", "file-name", "file-modification-indicator"]
+center = ["version-control"]
+right = ["diagnostics", "selections", "position", "file-encoding"]

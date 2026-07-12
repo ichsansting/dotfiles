@@ -1,0 +1,12 @@
+keys:
+  - &identity age14zj8xa84qtky4rs0xkcvyfg5gf3004rw2lls8wpxjceqlda9vc9qjyza4y
+
+creation_rules:
+  - path_regex: ^bundles/[^/]+/files/.*$
+    key_groups:
+      - age:
+          - *identity
+  - path_regex: ^fragments/.*\.secret\.md$
+    key_groups:
+      - age:
+          - *identity

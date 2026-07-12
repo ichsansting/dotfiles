@@ -1,0 +1,14 @@
+default_shell "fish"
+mouse_mode true
+theme "catppuccin-mocha"
+
+// Unbind Alt+Right in all non-locked modes. "Alt f" covers macOS Alacritty
+// (and similar terminals) that encode Alt+Right as ESC+f (readline
+// forward-word). "Alt Right" covers terminals that send proper CSI
+// sequences (Linux, kitty, wezterm).
+// See: https://github.com/zellij-org/zellij/issues/3850
+keybinds {
+    shared_except "locked" {
+        unbind "Alt f" "Alt Right"
+    }
+}

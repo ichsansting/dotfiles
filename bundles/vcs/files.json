@@ -1,4 +1,11 @@
 {
-  "files": [],
-  "packages": ["git"]
+  "files": [
+    { "path": ".config/git/config", "mode": "plain" },
+    { "path": ".config/git/ignore", "mode": "plain" },
+    { "path": ".ssh/config", "mode": "plain" },
+    { "path": ".ssh/id_ed25519", "mode": "secret" },
+    { "path": ".config/gh/config.yml", "mode": "plain" },
+    { "path": ".config/gh/hosts.yml", "mode": "secret" }
+  ],
+  "packages": ["git", "delta", "gh"]
 }

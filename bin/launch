@@ -5,15 +5,24 @@
 # freshly isolated $HOME. See
 # .scratch/ephemeral-shell/issues/15-end-to-end-launch-app.md.
 set -euo pipefail
-shopt -s nullglob
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-PRESETS=()
-for f in "$ROOT"/presets/*.json; do
-  name="$(basename "$f")"
-  PRESETS+=("${name%.json}")
-done
+# Presets referenced as another preset's "base" (e.g. default, devbase) are
+# inheritance scaffolding, not a launchable named context on their own —
+# excluded from the picker so there's nothing to select that leaves you in a
+# partial, no-persona environment.
+mapfile -t PRESETS < <(python3 -c '
+import json, sys
+from pathlib import Path
+
+presets_dir = Path(sys.argv[1])
+files = sorted(presets_dir.glob("*.json"))
+bases = {json.loads(f.read_text()).get("base") for f in files}
+for f in files:
+    if f.stem not in bases:
+        print(f.stem)
+' "$ROOT/presets")
 [[ ${#PRESETS[@]} -gt 0 ]] || { echo "launch: no presets found under $ROOT/presets" >&2; exit 1; }
 
 PRESET=$(printf '%s\n' "${PRESETS[@]}" | fzf --prompt="preset> " --height=~40% --reverse)

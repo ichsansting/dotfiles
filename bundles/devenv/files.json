@@ -1,0 +1,11 @@
+{
+  "files": [
+    { "path": ".config/direnv/direnvrc", "mode": "plain" },
+    { "path": ".config/direnv/direnv.toml", "mode": "plain" },
+    { "path": ".config/fish/conf.d/30-devenv.fish", "mode": "plain" },
+    { "path": ".claude/settings.json", "mode": "plain" },
+    { "path": ".claude/skills/caveman-commit/SKILL.md", "mode": "plain" },
+    { "path": ".claude/skills/drop-handoff/SKILL.md", "mode": "plain" }
+  ],
+  "packages": ["mise", "direnv"]
+}

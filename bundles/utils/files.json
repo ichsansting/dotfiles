@@ -1,0 +1,21 @@
+{
+  "files": [
+    { "path": ".config/bat/config", "mode": "plain" },
+    { "path": ".config/fish/conf.d/20-utils.fish", "mode": "plain" }
+  ],
+  "packages": [
+    "fzf",
+    "ripgrep",
+    "fd",
+    "eza",
+    "yazi",
+    "dust",
+    "duf",
+    "bat",
+    "jq",
+    "btop",
+    "nvd",
+    "nix-tree",
+    "comma"
+  ]
+}

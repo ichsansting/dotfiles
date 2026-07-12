@@ -1,0 +1,34 @@
+providers:
+  tvlk:
+    baseUrl: https://litellm.tvlk.cloud/v1  # verified: GET /v1/models returns these model ids
+    api: openai-completions
+    apiKey: ANTHROPIC_AUTH_TOKEN             # env var — set in shell or claude-code config
+    authHeader: true                         # LiteLLM expects Authorization: Bearer
+    disableStrictTools: true                 # LiteLLM/Bedrock proxy rejects the strict field on tool schemas
+    compat:
+      supportsToolChoice: false              # Bedrock rejects tool_choice param (incl. tool_choice=none)
+    models:
+      - id: claude-sonnet-4.6               # verified: present in /v1/models response
+        name: Claude Sonnet 4.6
+        input: [text, image]                 # Claude 4.x vision capability
+        reasoning: false                     # LiteLLM/Bedrock proxy rejects reasoning_effort and thinking fields
+        contextWindow: 200000                # Anthropic model card: claude-sonnet-4.x
+        maxTokens: 16384                     # Anthropic model card: claude-sonnet-4.x
+        # cost per 1M tokens — source: https://platform.claude.com/docs/en/about-claude/pricing
+        cost: { input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 }
+      - id: claude-haiku-4.5               # verified: present in /v1/models response
+        name: Claude Haiku 4.5
+        input: [text, image]                 # Claude 4.x vision capability
+        reasoning: false                     # LiteLLM/Bedrock proxy rejects reasoning_effort and thinking fields
+        contextWindow: 200000                # Anthropic model card: claude-haiku-4.x
+        maxTokens: 16384                     # Anthropic model card: claude-haiku-4.x
+        # cost per 1M tokens — source: https://platform.claude.com/docs/en/about-claude/pricing
+        cost: { input: 1, output: 5, cacheRead: 0.10, cacheWrite: 1.25 }
+      - id: claude-opus-4.7               # verified: present in /v1/models response
+        name: Claude Opus 4.7
+        input: [text, image]                 # Claude 4.x vision capability
+        reasoning: false                     # LiteLLM/Bedrock proxy rejects reasoning_effort and thinking fields
+        contextWindow: 200000                # Anthropic model card: claude-opus-4.x
+        maxTokens: 16384                     # Anthropic model card: claude-opus-4.x
+        # cost per 1M tokens — source: https://platform.claude.com/docs/en/about-claude/pricing
+        cost: { input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 }

@@ -1,0 +1,5 @@
+# ponytail: nix-direnv isn't wired in (its direnvrc snippet lives under a
+# package's store path, which isn't stable without home-manager's profile
+# symlink); `use flake`/`use nix` fall back to plain direnv without eval
+# caching. Add nix-direnv back by sourcing its resolved store path's
+# share/nix-direnv/direnvrc here if the slower reload becomes a problem.

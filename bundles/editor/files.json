@@ -1,0 +1,17 @@
+{
+  "files": [
+    { "path": ".config/helix/config.toml", "mode": "plain" },
+    { "path": ".config/helix/languages.toml", "mode": "plain" }
+  ],
+  "packages": [
+    "helix",
+    "nixd",
+    "bash-language-server",
+    "fish-lsp",
+    "markdown-oxide",
+    "ty",
+    "ruff",
+    "typescript-language-server",
+    "nixfmt"
+  ]
+}

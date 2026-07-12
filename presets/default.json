@@ -1,0 +1,9 @@
+{
+  "bundles": ["vcs", "terminal", "editor", "utils", "env"],
+  "settings": {
+    "git": {
+      "name": "Ichsan Sting",
+      "email": "139094570+ichsansting@users.noreply.github.com"
+    }
+  }
+}

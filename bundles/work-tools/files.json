@@ -1,0 +1,11 @@
+{
+  "files": [
+    { "path": ".config/fish/conf.d/50-work-tools.fish", "mode": "plain" },
+    { "path": ".omp/agent/AGENTS.md", "mode": "plain" },
+    { "path": ".omp/agent/config.yml", "mode": "plain" },
+    { "path": ".omp/agent/models.yml", "mode": "plain" },
+    { "path": ".aws/config", "mode": "secret" },
+    { "path": ".config/fish/conf.d/60-traveloka-secrets.fish", "mode": "secret" }
+  ],
+  "packages": ["awscli2", "docker", "ast-grep", "granted"]
+}

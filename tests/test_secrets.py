@@ -56,7 +56,19 @@ def _sops_encrypt_binary(content: bytes, recipient: str, out_path: Path) -> None
     tmp.write_bytes(content)
     try:
         result = subprocess.run(
-            ["sops", "--encrypt", "--age", recipient, "--input-type", "binary", "--output-type", "binary", str(tmp)],
+            [
+                "sops",
+                "--encrypt",
+                "--config",
+                "/dev/null",  # ignore any .sops.yaml sops finds via cwd — this fixture supplies its own recipient
+                "--age",
+                recipient,
+                "--input-type",
+                "binary",
+                "--output-type",
+                "binary",
+                str(tmp),
+            ],
             capture_output=True,
             check=True,
         )

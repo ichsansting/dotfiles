@@ -1,0 +1,71 @@
+[language-server.nixd]
+command = "nixd"
+
+[language-server.bash-language-server]
+command = "bash-language-server"
+args = ["start"]
+
+[language-server.fish-lsp]
+command = "fish-lsp"
+args = ["start"]
+
+[language-server.markdown-oxide]
+command = "markdown-oxide"
+args = ["server"]
+
+[language-server.ty]
+command = "ty"
+args = ["server"]
+
+[language-server.ruff-lsp]
+command = "ruff"
+args = ["server", "--preview"]
+
+[language-server.typescript-language-server]
+command = "typescript-language-server"
+args = ["--stdio"]
+
+# rust-analyzer is intentionally NOT installed via Nix here. Install it
+# through `mise` or `rustup component add rust-analyzer` so it stays in sync
+# with the active Rust toolchain version.
+[language-server.rust-analyzer]
+command = "rust-analyzer"
+
+[[language]]
+name = "nix"
+language-servers = ["nixd"]
+auto-format = true
+[language.formatter]
+command = "nixfmt"
+
+[[language]]
+name = "bash"
+language-servers = ["bash-language-server"]
+
+[[language]]
+name = "fish"
+language-servers = ["fish-lsp"]
+
+[[language]]
+name = "markdown"
+language-servers = ["markdown-oxide"]
+
+[[language]]
+name = "python"
+language-servers = ["ty", "ruff-lsp"]
+auto-format = true
+[language.formatter]
+command = "ruff"
+args = ["format", "-"]
+
+[[language]]
+name = "typescript"
+language-servers = ["typescript-language-server"]
+
+[[language]]
+name = "javascript"
+language-servers = ["typescript-language-server"]
+
+[[language]]
+name = "rust"
+language-servers = ["rust-analyzer"]
