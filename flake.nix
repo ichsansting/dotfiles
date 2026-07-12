@@ -4,7 +4,7 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -50,6 +50,35 @@
             paths = map (n: pkgs.${n}) (bundlePackageNames bundle);
           }
         )
+      );
+
+      # apps.<system>.default — `nix run` with no args: the flake's default
+      # app (ticket 15). An interactive fzf preset picker (bin/launch) that
+      # wires together isolation (bin/isolate), secrets bootstrap +
+      # materialize (bin/launch-inner, calling pkg/dotfiles/core), and package
+      # assembly (bin/assemble). fzf/age/sops/python3 are this app's own
+      # runtime inputs, distinct from the per-bundle packages above.
+      apps = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          launch = pkgs.writeShellApplication {
+            name = "launch";
+            runtimeInputs = [
+              pkgs.fzf
+              pkgs.age
+              pkgs.sops
+              pkgs.python3
+            ];
+            text = ''exec "${self}/bin/launch"'';
+          };
+        in
+        {
+          default = {
+            type = "app";
+            program = "${launch}/bin/launch";
+          };
+        }
       );
     };
 }

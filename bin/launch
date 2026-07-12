@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Ephemeral shell launcher entry point (ticket 15) — the flake's default app.
+# fzf-picks a preset, then hands off to isolate (ticket 12), which execs into
+# launch-inner (secrets bootstrap + materialize + package assembly) inside the
+# freshly isolated $HOME. See
+# .scratch/ephemeral-shell/issues/15-end-to-end-launch-app.md.
+set -euo pipefail
+shopt -s nullglob
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+PRESETS=()
+for f in "$ROOT"/presets/*.json; do
+  name="$(basename "$f")"
+  PRESETS+=("${name%.json}")
+done
+[[ ${#PRESETS[@]} -gt 0 ]] || { echo "launch: no presets found under $ROOT/presets" >&2; exit 1; }
+
+PRESET=$(printf '%s\n' "${PRESETS[@]}" | fzf --prompt="preset> " --height=~40% --reverse)
+[[ -n "$PRESET" ]] || { echo "launch: no preset selected" >&2; exit 1; }
+
+exec "$ROOT/bin/isolate" -- "$ROOT/bin/launch-inner" "$ROOT" "$PRESET"

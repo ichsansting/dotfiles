@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Runs inside the isolated $HOME (ticket 12), as ticket 15's wiring step:
+secrets bootstrap (ticket 14) -> materialize write plan (ticket 11) -> hands
+off to package assembly (ticket 13). See
+.scratch/ephemeral-shell/issues/15-end-to-end-launch-app.md.
+
+Usage: launch-inner ROOT PRESET [-- CMD...]
+
+CMD, if given, is passed through to bin/assemble in place of its default
+$SHELL spawn — used by bin/launch-demo to drive a bounded, non-interactive
+verification of the full chain.
+"""
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+
+def build_home(root: Path, preset_name: str, target: Path) -> list[str]:
+    """Decrypts secrets and materializes every plan entry into `target` (the
+    already-isolated $HOME), returning the assemble argv to exec into."""
+    sys.path.insert(0, str(root / "pkg"))
+    from dotfiles.core import materialize, secrets
+
+    decrypted = secrets.bootstrap(root, preset_name, target, root / "identity.age")
+
+    for entry in materialize.build_plan(root, preset_name, decrypted):
+        if entry.mode == materialize.MODE_SECRET:
+            continue  # already written by secrets.bootstrap
+        out = target / entry.path
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(entry.content)
+
+    bundles = materialize.load_preset(root, preset_name).bundles
+    assemble = str(root / "bin" / "assemble")
+    return [assemble, *bundles]
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if len(args) < 2:
+        print("usage: launch-inner ROOT PRESET [-- CMD...]", file=sys.stderr)
+        sys.exit(1)
+
+    rest = args[2:]
+    cmd = rest[1:] if rest[:1] == ["--"] else []
+
+    argv = build_home(Path(args[0]), args[1], Path(os.environ["HOME"]))
+    if cmd:
+        argv = [*argv, "--", *cmd]
+    os.execv(argv[0], argv)

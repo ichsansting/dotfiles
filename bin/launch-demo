@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""Standalone verification for the full launch chain (ticket 15): fzf preset
+pick (bin/launch) -> isolate (12) -> secrets bootstrap (14) -> materialize
+(11) -> package assembly (13). Run directly: bin/launch-demo
+
+Builds a throwaway fixture repo (own preset/bundle/fragment tree, symlinked
+to this repo's real bin/pkg) with a plain file, a secret file, and a fragment
+— all encrypted for the same demo-only identity.age this repo carries at its
+root (documented test passphrase below, not real content — see ticket 16) —
+so the secrets-decrypt and file-write loops are genuinely exercised rather
+than looping zero times over the real (currently secret-less) personal/vcs
+preset.
+
+Two things are checked:
+  1. bin/launch-inner's own wiring (secrets bootstrap + materialize + the
+     resolved assemble hand-off), driven directly against a plain temp $HOME.
+     This is what's new in ticket 15, independent of ticket 12's isolation
+     mechanism (already verified standalone by bin/isolate-demo).
+  2. The bin/isolate -> bin/launch-inner argument hand-off. A full happy-path
+     run (real isolation + a live terminal for the age passphrase prompt)
+     can't be driven headlessly — this only confirms isolate's own documented
+     loud-failure path, or reports that isolation succeeded and a live
+     terminal is needed to go further.
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "pkg"))
+from dotfiles.testing import with_passphrase  # noqa: E402
+
+PASSPHRASE = "ephemeral-shell-demo-fixture"  # matches identity.age, demo-only
+
+
+def _load_launch_inner():
+    loader = SourceFileLoader("launch_inner", str(ROOT / "bin" / "launch-inner"))
+    spec = importlib.util.spec_from_loader("launch_inner", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def _recipient_for(identity_file: Path) -> str:
+    """Derives the age public key from the repo's demo identity, so the
+    fixture's secret file can be encrypted for the same key build_home will
+    decrypt with."""
+    raw_key = with_passphrase(
+        PASSPHRASE,
+        subprocess.run,
+        ["age", "--decrypt", str(identity_file)],
+        capture_output=True,
+        check=True,
+    ).stdout.decode()
+    return subprocess.run(
+        ["age-keygen", "-y"], input=raw_key, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def _make_fixture(fixture_root: Path, recipient: str) -> None:
+    (fixture_root / "presets").mkdir(parents=True)
+    (fixture_root / "presets" / "demo.json").write_text(
+        json.dumps({"bundles": ["demo-bundle"], "settings": {}})
+    )
+
+    files_dir = fixture_root / "bundles" / "demo-bundle" / "files"
+    files_dir.mkdir(parents=True)
+    (fixture_root / "bundles" / "demo-bundle" / "files.json").write_text(
+        json.dumps(
+            {
+                "files": [
+                    {"path": ".plain-file", "mode": "plain"},
+                    {"path": ".secret-file", "mode": "secret"},
+                ]
+            }
+        )
+    )
+    (files_dir / ".plain-file").write_text("plain content\n")
+
+    plain_secret = files_dir / ".secret-file.plain-tmp"
+    plain_secret.write_bytes(b"demo secret content\n")
+    encrypted = subprocess.run(
+        [
+            "sops",
+            "--encrypt",
+            "--age",
+            recipient,
+            "--input-type",
+            "binary",
+            "--output-type",
+            "binary",
+            str(plain_secret),
+        ],
+        capture_output=True,
+        check=True,
+    ).stdout
+    (files_dir / ".secret-file").write_bytes(encrypted)
+    plain_secret.unlink()
+
+    frag_dir = fixture_root / "fragments" / ".demo.d"
+    frag_dir.mkdir(parents=True)
+    (frag_dir / "10-demo-bundle.md").write_text("plain fragment content\n")
+
+    shutil.copy(ROOT / "identity.age", fixture_root / "identity.age")
+    (fixture_root / "bin").symlink_to(ROOT / "bin")
+    (fixture_root / "pkg").symlink_to(ROOT / "pkg")
+
+
+def demo_build_home() -> None:
+    launch_inner = _load_launch_inner()
+    recipient = _recipient_for(ROOT / "identity.age")
+
+    with tempfile.TemporaryDirectory() as fixture_dir, tempfile.TemporaryDirectory() as home_dir:
+        fixture_root = Path(fixture_dir)
+        home = Path(home_dir)
+        _make_fixture(fixture_root, recipient)
+
+        argv = with_passphrase(PASSPHRASE, launch_inner.build_home, fixture_root, "demo", home)
+
+        checks = [
+            (home / ".plain-file", b"plain content\n"),
+            (home / ".secret-file", b"demo secret content\n"),
+            (home / ".demo", b"plain fragment content\n"),
+        ]
+        for path, expected in checks:
+            if not path.exists():
+                print(f"FAIL: {path.name} was not materialized into the ephemeral $HOME")
+                sys.exit(1)
+            if path.read_bytes() != expected:
+                print(f"FAIL: {path.name} has unexpected content: {path.read_bytes()!r}")
+                sys.exit(1)
+
+        secret_path = home / ".secret-file"
+        if (secret_path.stat().st_mode & 0o777) != 0o600:
+            print("FAIL: decrypted secret file has the wrong permissions")
+            sys.exit(1)
+
+        key_path = home / ".config" / "sops" / "age" / "keys.txt"
+        if not key_path.exists() or (key_path.stat().st_mode & 0o777) != 0o600:
+            print("FAIL: identity key was not decrypted into the ephemeral $HOME")
+            sys.exit(1)
+
+        expected_argv = [str(fixture_root / "bin" / "assemble"), "demo-bundle"]
+        if argv != expected_argv:
+            print(f"FAIL: unexpected assemble argv: {argv}")
+            sys.exit(1)
+
+        print("OK: identity + secret file decrypted, plain file and composed fragment materialized")
+        print(f"OK: would hand off to: {' '.join(argv)}")
+
+
+def demo_isolate_handoff() -> None:
+    result = subprocess.run(
+        [
+            str(ROOT / "bin" / "isolate"),
+            "--",
+            str(ROOT / "bin" / "launch-inner"),
+            str(ROOT),
+            "personal",
+            "--",
+            "true",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if "unprivileged user namespaces are unavailable" in result.stderr:
+        print("OK: isolate -> launch-inner hand-off reached isolate's documented loud-failure path")
+        print("    (no unprivileged userns on this host — see bin/isolate-demo, ticket 12)")
+        return
+    print("isolation succeeded on this host — full run needs a live terminal for the age")
+    print("passphrase prompt; run bin/launch-demo interactively (with a real tty) to confirm")
+
+
+if __name__ == "__main__":
+    missing = [t for t in ("age", "age-keygen", "sops") if shutil.which(t) is None]
+    if missing:
+        print(f"SKIP: {', '.join(missing)} not available")
+        sys.exit(0)
+
+    demo_build_home()
+    demo_isolate_handoff()

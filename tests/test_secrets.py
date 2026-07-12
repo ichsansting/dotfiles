@@ -5,71 +5,26 @@ Exercises real `age`/`sops` binaries (skipped if unavailable) rather than
 mocking them — the thing worth testing here is the subprocess wiring and
 target-directory containment, not resolution logic (already covered by
 test_materialize.py). An interactive passphrase prompt needs a controlling
-terminal, so `_fake_tty` redirects this process's stdin/stdout/stderr to a
-pty pair for the duration of the call under test.
+terminal, so `with_passphrase` (dotfiles.testing) redirects this process's
+stdin/stdout/stderr to a pty pair for the duration of the call under test.
 """
 from __future__ import annotations
 
-import contextlib
-import os
-import pty
 import shutil
 import subprocess
-import threading
-import time
 from pathlib import Path
 
 import pytest
 
 from dotfiles.core import materialize as m
 from dotfiles.core import secrets
+from dotfiles.testing import with_passphrase as _with_passphrase
 from conftest import write_bundle_file, write_fragment, write_preset
 
 HAS_AGE = shutil.which("age") is not None and shutil.which("age-keygen") is not None
 HAS_SOPS = shutil.which("sops") is not None
 needs_age = pytest.mark.skipif(not HAS_AGE, reason="age/age-keygen not available")
 needs_age_sops = pytest.mark.skipif(not (HAS_AGE and HAS_SOPS), reason="age/sops not available")
-
-
-@contextlib.contextmanager
-def _fake_tty():
-    """Redirect fds 0/1/2 to a pty pair so a subprocess that inherits them
-    (age's interactive passphrase prompt) can be driven without a real
-    terminal. Yields the pty master fd."""
-    master, slave = pty.openpty()
-    saved = [os.dup(0), os.dup(1), os.dup(2)]
-    os.dup2(slave, 0)
-    os.dup2(slave, 1)
-    os.dup2(slave, 2)
-    try:
-        yield master
-    finally:
-        for fd_no, saved_fd in enumerate(saved):
-            os.dup2(saved_fd, fd_no)
-            os.close(saved_fd)
-        os.close(slave)
-        os.close(master)
-
-
-def _with_passphrase(passphrase: str, fn, *args, **kwargs):
-    """Call fn(*args, **kwargs) while feeding `passphrase` (twice, covering
-    both a single decrypt prompt and an encrypt/confirm pair) into a faked
-    controlling terminal."""
-    with _fake_tty() as master:
-        def feed():
-            for _ in range(2):
-                time.sleep(0.3)
-                try:
-                    os.write(master, (passphrase + "\n").encode())
-                except OSError:
-                    return
-
-        t = threading.Thread(target=feed)
-        t.start()
-        try:
-            return fn(*args, **kwargs)
-        finally:
-            t.join()
 
 
 def _make_age_identity(tmp_path: Path, passphrase: str) -> tuple[Path, str]:
@@ -88,6 +43,7 @@ def _make_age_identity(tmp_path: Path, passphrase: str) -> tuple[Path, str]:
         passphrase,
         subprocess.run,
         ["age", "--passphrase", "--encrypt", "-o", str(identity_file), str(raw_key)],
+        feed_count=2,
         check=True,
     )
     raw_key.unlink()
