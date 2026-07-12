@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Flake package assembly (ticket 13).
+#
+# Given a resolved bundle list (from the core materialize module's Preset —
+# see pkg/dotfiles/core/materialize.py), runs `nix shell` with exactly those
+# bundles' package sets (flake.nix's packages.<system>.<bundle> outputs) and
+# spawns $SHELL — or CMD, if given — with them on PATH. Stateless: `nix
+# shell` writes no profile/generation, so nothing about package assembly
+# survives the session.
+#
+# Usage: assemble BUNDLE... [-- CMD...]
+set -euo pipefail
+
+FLAKE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+BUNDLES=()
+while [[ $# -gt 0 && "$1" != "--" ]]; do
+  BUNDLES+=("$1")
+  shift
+done
+[[ "${1:-}" == "--" ]] && shift
+CMD=("$@")
+
+if [[ ${#BUNDLES[@]} -eq 0 ]]; then
+  echo "assemble: at least one bundle name is required" >&2
+  echo "usage: assemble BUNDLE... [-- CMD...]" >&2
+  exit 1
+fi
+
+INSTALLABLES=()
+for b in "${BUNDLES[@]}"; do
+  INSTALLABLES+=("$FLAKE_DIR#$b")
+done
+
+if [[ ${#CMD[@]} -gt 0 ]]; then
+  exec nix shell "${INSTALLABLES[@]}" --command "${CMD[@]}"
+else
+  exec nix shell "${INSTALLABLES[@]}"
+fi

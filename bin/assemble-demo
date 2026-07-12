@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Standalone verification for bin/assemble (ticket 13) — resolves a real
+# preset's bundle list via the core materialize module, feeds it to
+# bin/assemble, and confirms that bundle's tool lands on PATH. No dependency
+# on isolation or secrets bootstrap.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+PRESET="${1:-personal}"
+
+BUNDLES=$(PYTHONPATH=pkg python3 -c "
+from pathlib import Path
+from dotfiles.core.materialize import load_preset
+print(' '.join(load_preset(Path('.'), '$PRESET').bundles))
+")
+
+[[ -n "$BUNDLES" ]] || { echo "FAIL: preset '$PRESET' resolved no bundles"; exit 1; }
+echo "resolved bundles for preset '$PRESET': $BUNDLES"
+
+# shellcheck disable=SC2086 # bundle names are single tokens, intentional word-splitting
+if out=$(./bin/assemble $BUNDLES -- sh -c 'command -v git' 2>&1); then
+  echo "OK: git is on PATH inside the assembled shell ($out)"
+else
+  echo "FAIL: git not found on PATH inside the assembled shell:"
+  echo "$out"
+  exit 1
+fi
