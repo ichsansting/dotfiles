@@ -1,0 +1,13 @@
+# Tool configuration only. The package is never pip-installed: the flake
+# (added by a later ticket) will run it via PYTHONPATH=pkg; pytest here
+# comes from `uv run --with pytest`.
+[project]
+name = "dotfiles"
+version = "0.1.0"
+description = "Ephemeral personal-shell launcher: materialize core, launcher, editing TUI"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["pkg"]
+addopts = "-q"
