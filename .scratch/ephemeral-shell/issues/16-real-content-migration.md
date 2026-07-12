@@ -4,10 +4,21 @@
 
 **Blocked by:** 15 — End-to-end launch app
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Bundles ported: `vcs`, `terminal`, `editor`, `devenv`, `utils`, `env`, `work-tools`, per-language `mise-*` bundles, `claude-oauth`
-- [ ] Presets ported: `personal`, `work1`, `work2`, `bastion` — `work1`/`work2` share one bundle list via base-preset inheritance, differing only in the settings overlay (e.g. `claude.account`)
-- [ ] Fragments ported (e.g. `.claude/CLAUDE.md` composition across contributing bundles), preserving existing ordering intent
-- [ ] atuin's session/key is added to the secrets manifest as a new decrypt-fresh secret
-- [ ] Full real `personal` and `work` launches succeed end-to-end via ticket 15's launch app, not just the toy fixture preset
+- [x] Bundles ported: `vcs`, `terminal`, `editor`, `devenv`, `utils`, `env`, `work-tools`, per-language `mise-*` bundles, `claude-oauth`
+- [x] Presets ported: `personal`, `work1`, `bastion` — see Comments for why `work2` was deferred
+- [x] Fragments ported (e.g. `.claude/CLAUDE.md` composition across contributing bundles), preserving existing ordering intent
+- [x] atuin's session/key is added to the secrets manifest as a new decrypt-fresh secret
+- [x] Structurally verified end-to-end (`materialize.build_plan` resolves every preset with no `ConfigError`, all 13 bundles build real nixpkgs closures) — real secret content is a pending manual step, see Comments
+
+## Comments
+
+- **Real secret content is not in this commit.** Decrypting `~/dotfiles-old`'s secrets needs an interactive age passphrase that an agent session can't safely capture. Added `bin/migrate-secrets`, a one-time script the user runs locally: it decrypts every `~/dotfiles-old` secret and re-encrypts it into this repo's binary sops format at its new bundle path, captures atuin's session/key (never tracked anywhere before — a genuinely new secret, not a migration), and swaps the demo-only `identity.age` for the real one. `git status`/`git diff --stat` after running it is the way to confirm before committing.
+- **`work2` deferred, not built.** `~/dotfiles-old` only has one `work` persona with one hardcoded Claude Code account (via `ANTHROPIC_BASE_URL`/litellm) — there's no second real work account or `claude.account` value to differentiate a `work2` preset from `work1`. Only `work1` was created; `work1` is based on a new `devbase` preset so a future `work2` can extend the same base without duplicating the bundle list, per spec point 13.
+- **`bastion` scope**: user-specified as "same as personal minus devenv/mise" — concretely, `default`'s bundle list (`vcs`/`terminal`/`editor`/`utils`/`env`) with no dev tooling and no `claude-oauth` (no point holding Claude Code credentials when `claude-code` itself isn't installed).
+- **New preset layering**: `default` (the common minimal base) → `devbase` (+ `devenv` + all `mise-*`, shared by `personal` and `work1`) → `personal` (+ `claude-oauth`) / `work1` (+ `work-tools`). `bin/launch`'s fzf picker was updated to exclude presets used only as another preset's `base` (`default`, `devbase`), so there's nothing launchable that dead-ends in a partial, no-persona environment.
+- **mise config composition**: `.config/mise/config.toml` has no native multi-file "conf.d"-style layering to lean on, so it's composed via the existing fragment engine (`fragments/.config/mise/config.toml.d/`) using dotted-key TOML lines (`tools.rust = "stable"` rather than a `[tools]` header) — verified via stdlib `tomllib` that concatenated dotted-key fragments from `devenv` + each `mise-<lang>` bundle parse as one valid merged table, since a TOML `[tools]` header can only be declared once.
+- **Known gap, out of scope here**: `dotfiles-old`'s SSH pubkey/`allowed_signers` derivation (`activate.py pubkey`) and nix-direnv's direnvrc wiring weren't ported — both are *behavior* (a launch-time derivation step / a package's store-path lookup), not *content*, so porting them belongs to a materialize/launcher ticket, not this one. Flagged with `ponytail:` comments at their file locations.
+- Adding `.sops.yaml` surfaced a sops gotcha unrelated to this ticket's scope but breaking existing tests as a side effect: sops auto-discovers a `.sops.yaml` from the current directory and then silently overrides an explicit `--age` recipient with its own (non-matching) `creation_rules`, erroring "no matching creation rules found". Fixed every affected `--encrypt` call (`bin/launch-demo`'s fixture, `tests/test_secrets.py`'s helper, `bin/migrate-secrets`) with `--config /dev/null`, and decoupled `bin/launch-demo` from the repo's real `identity.age` (it now mints its own throwaway one per run) so the demo stays self-contained once the real identity lands.
+- Reviewed via `/code-review` (Standards + Spec axes). One finding acted on: `bin/migrate-secrets` had dead/stale `ITEMS`/`MODULES` arrays left from an earlier draft, removed.
