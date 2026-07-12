@@ -7,20 +7,13 @@ from __future__ import annotations
 
 from textual.binding import Binding
 from textual.message import Message
-from textual.widgets import Tree
-from textual.widgets.tree import TreeNode
 
 from ...core import edit
+from .base_tree import PanelTree
 
-NodeData = tuple
 
-
-class BundleTree(Tree[NodeData]):
-    BINDINGS = [
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
-        Binding("l", "expand_node", "Expand", show=False),
-        Binding("h", "collapse_node", "Collapse", show=False),
+class BundleTree(PanelTree):
+    BINDINGS = PanelTree.BINDINGS + [
         Binding("n", "new_bundle", "New"),
         Binding("r", "rename_bundle", "Rename"),
         Binding("d", "delete", "Delete/Remove"),
@@ -61,8 +54,6 @@ class BundleTree(Tree[NodeData]):
 
     def __init__(self, **kwargs) -> None:
         super().__init__("bundles", **kwargs)
-        self.show_root = False
-        self._node_map: dict[NodeData, TreeNode[NodeData]] = {}
 
     def build(self, root, bundles: list[str]) -> None:
         self.clear()
@@ -82,10 +73,6 @@ class BundleTree(Tree[NodeData]):
         self.root.expand()
         if bundles:
             self.cursor_line = 0
-
-    def _cursor_data(self) -> NodeData | None:
-        node = self.cursor_node
-        return node.data if node is not None else None
 
     def action_new_bundle(self) -> None:
         self.post_message(self.NewRequested())
@@ -113,16 +100,3 @@ class BundleTree(Tree[NodeData]):
         data = self._cursor_data()
         if data and data[0] == "item":
             self.post_message(self.PreviewRequested(data[1], data[2], data[3]))
-
-    def action_expand_node(self) -> None:
-        if self.cursor_node is not None and self.cursor_node.allow_expand:
-            self.cursor_node.expand()
-
-    def action_collapse_node(self) -> None:
-        node = self.cursor_node
-        if node is None:
-            return
-        if node.allow_expand and node.is_expanded:
-            node.collapse()
-        elif node.parent is not None and node.parent is not self.root:
-            self.cursor_line = node.parent.line

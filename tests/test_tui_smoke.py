@@ -156,6 +156,56 @@ async def test_add_bundle_to_preset_then_toggle_off(repo: Path):
         assert json.loads((repo / "presets/work1.json").read_text())["bundles"] == []
 
 
+async def test_toggle_inherited_bundle_warns_without_mutating(repo: Path):
+    app = EditApp(repo)
+    async with app.run_test(size=(140, 45)) as pilot:
+        await pilot.press("1")
+        tree = pilot.app.screen.query_one(PresetTree)
+        tree._node_map[("preset", "work1")].expand()
+        await pilot.pause()
+        # "vcs" is inherited from work1's base ("default"), not own — never
+        # explicitly listed in work1.json.
+        key = ("bundle", "work1", "vcs", True)
+        tree.cursor_line = tree._node_map[key].line
+        await pilot.press("space")
+        await pilot.pause()
+
+        assert json.loads((repo / "presets/work1.json").read_text())["bundles"] == []
+
+
+async def test_new_fragment_owner_is_picked_not_typed(repo: Path, monkeypatch: pytest.MonkeyPatch):
+    # No real $EDITOR here: Textual's headless Pilot can't drive app.suspend()
+    # (see module docstring). Unset explicitly so an ambient $EDITOR in the
+    # dev environment can't make this test flaky.
+    monkeypatch.delenv("EDITOR", raising=False)
+    monkeypatch.delenv("VISUAL", raising=False)
+    app = EditApp(repo)
+    async with app.run_test(size=(140, 45)) as pilot:
+        await pilot.press("3", "n")
+        await pilot.pause()
+        assert isinstance(pilot.app.screen, FormModal)
+        pilot.app.screen.query_one("#field-target").value = ".config/atuin/config.toml"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(pilot.app.screen, PickerModal)
+        opts = pilot.app.screen.query_one("#picker-list")
+        shown = [str(opts.get_option_at_index(i).id) for i in range(opts.option_count)]
+        assert shown == sorted({"vcs", "terminal", "default", "work1"})
+        opts.highlighted = shown.index("terminal")
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(pilot.app.screen, PickerModal)  # secret picker
+        opts = pilot.app.screen.query_one("#picker-list")
+        opts.highlighted = 0  # "plain"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        new_frag = repo / "fragments/.config/atuin/config.toml.d/10-terminal.md"
+        assert new_frag.exists()
+
+
 async def test_delete_preset_blocked_when_used_as_base(repo: Path):
     app = EditApp(repo)
     async with app.run_test(size=(140, 45)) as pilot:

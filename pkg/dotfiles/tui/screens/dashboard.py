@@ -213,6 +213,15 @@ class DashboardScreen(Screen):
         self.app.push_screen(PickerModal(f"Add bundle to {msg.preset}", available), _on_result)
 
     def on_preset_tree_toggle_bundle_requested(self, msg: PresetTree.ToggleBundleRequested) -> None:
+        if msg.inherited:
+            # There's no exclude-inherited-bundle mechanism (only exclude_fragments
+            # exists) — toggling would just add a redundant explicit own entry.
+            self.notify(
+                f"{msg.bundle} is inherited from the base preset — change the base "
+                "(b) to drop it",
+                severity="warning",
+            )
+            return
         result = edit.toggle_bundle_in_preset(self.state.repo, msg.preset, msg.bundle)
         if self._commit(result):
             self._refresh()
@@ -377,46 +386,57 @@ class DashboardScreen(Screen):
     # -- fragments ---------------------------------------------------------------
 
     def on_fragment_tree_new_requested(self, msg: FragmentTree.NewRequested) -> None:
-        def _on_fields(values: dict | None) -> None:
+        # Owner must be a real bundle or preset name — materialize.py only
+        # activates a fragment whose owner is in a resolved preset's bundle
+        # list or is the preset's own name, so a free-typed owner could
+        # silently create a fragment that never composes into anything.
+        owners = sorted(set(self.state.bundles) | set(self.state.presets))
+        if not owners:
+            self.notify("No bundles or presets to own a new fragment", severity="warning")
+            return
+
+        def _on_target(values: dict | None) -> None:
             if values is None:
                 return
-            target, owner = values["target"], values["owner"]
-            if not target or not owner:
-                self.notify("Target and owner are required", severity="warning")
+            target = values["target"]
+            if not target:
+                self.notify("Target is required", severity="warning")
                 return
 
-            def _on_secret(choice: str | None) -> None:
-                if choice is None:
+            def _on_owner(owner: str | None) -> None:
+                if owner is None:
                     return
-                secret = choice == "secret"
-                try:
-                    result = edit.create_fragment(self.state.repo, target, owner, secret)
-                except (ValueError, FileExistsError) as e:
-                    self.notify(str(e), severity="error")
-                    return
-                content_path = self.state.repo / "fragments" / result.paths[0].removeprefix("fragments/")
-                filled = (
-                    self._edit_and_encrypt(content_path)
-                    if secret
-                    else self._open_editor(content_path)
-                )
-                if not filled:
-                    self.notify("Fragment created with no content yet", severity="warning")
-                if self._commit(result):
-                    self._refresh()
-                    self.notify(f"Created fragment {result.paths[0]}")
 
-            self.app.push_screen(PickerModal("Secret?", ["plain", "secret"]), _on_secret)
+                def _on_secret(choice: str | None) -> None:
+                    if choice is None:
+                        return
+                    secret = choice == "secret"
+                    try:
+                        result = edit.create_fragment(self.state.repo, target, owner, secret)
+                    except (ValueError, FileExistsError) as e:
+                        self.notify(str(e), severity="error")
+                        return
+                    content_path = (
+                        self.state.repo / "fragments" / result.paths[0].removeprefix("fragments/")
+                    )
+                    filled = (
+                        self._edit_and_encrypt(content_path)
+                        if secret
+                        else self._open_editor(content_path)
+                    )
+                    if not filled:
+                        self.notify("Fragment created with no content yet", severity="warning")
+                    if self._commit(result):
+                        self._refresh()
+                        self.notify(f"Created fragment {result.paths[0]}")
+
+                self.app.push_screen(PickerModal("Secret?", ["plain", "secret"]), _on_secret)
+
+            self.app.push_screen(PickerModal("Owner (bundle or preset)", owners), _on_owner)
 
         self.app.push_screen(
-            FormModal(
-                "New fragment",
-                [
-                    ("target", "Target file (~-relative)", msg.target_hint or ""),
-                    ("owner", "Owner (bundle or preset name)", ""),
-                ],
-            ),
-            _on_fields,
+            FormModal("New fragment", [("target", "Target file (~-relative)", msg.target_hint or "")]),
+            _on_target,
         )
 
     def on_fragment_tree_edit_content_requested(self, msg: FragmentTree.EditContentRequested) -> None:

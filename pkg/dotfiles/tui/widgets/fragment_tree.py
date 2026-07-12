@@ -7,18 +7,12 @@ from __future__ import annotations
 
 from textual.binding import Binding
 from textual.message import Message
-from textual.widgets import Tree
-from textual.widgets.tree import TreeNode
 
-NodeData = tuple
+from .base_tree import PanelTree
 
 
-class FragmentTree(Tree[NodeData]):
-    BINDINGS = [
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
-        Binding("l", "expand_node", "Expand", show=False),
-        Binding("h", "collapse_node", "Collapse", show=False),
+class FragmentTree(PanelTree):
+    BINDINGS = PanelTree.BINDINGS + [
         Binding("n", "new_fragment", "New"),
         Binding("e", "edit_content", "Edit"),
         Binding("R", "reorder", "Reorder"),
@@ -61,8 +55,6 @@ class FragmentTree(Tree[NodeData]):
 
     def __init__(self, **kwargs) -> None:
         super().__init__("fragments", **kwargs)
-        self.show_root = False
-        self._node_map: dict[NodeData, TreeNode[NodeData]] = {}
 
     def build(self, targets: dict[str, list]) -> None:
         self.clear()
@@ -79,10 +71,6 @@ class FragmentTree(Tree[NodeData]):
         self.root.expand()
         if targets:
             self.cursor_line = 0
-
-    def _cursor_data(self) -> NodeData | None:
-        node = self.cursor_node
-        return node.data if node is not None else None
 
     def action_new_fragment(self) -> None:
         data = self._cursor_data()
@@ -113,16 +101,3 @@ class FragmentTree(Tree[NodeData]):
         data = self._cursor_data()
         if data and data[0] == "fragment":
             self.post_message(self.PreviewRequested(data[2], data[4]))
-
-    def action_expand_node(self) -> None:
-        if self.cursor_node is not None and self.cursor_node.allow_expand:
-            self.cursor_node.expand()
-
-    def action_collapse_node(self) -> None:
-        node = self.cursor_node
-        if node is None:
-            return
-        if node.allow_expand and node.is_expanded:
-            node.collapse()
-        elif node.parent is not None and node.parent is not self.root:
-            self.cursor_line = node.parent.line

@@ -15,8 +15,7 @@ from textual.widgets import Tree
 from textual.widgets.tree import TreeNode
 
 from ...core import edit, materialize
-
-NodeData = tuple
+from .base_tree import NodeData, PanelTree
 
 
 def _flatten(d: dict, prefix: str = "", skip: frozenset[str] = frozenset()) -> list[tuple[str, object]]:
@@ -32,12 +31,8 @@ def _flatten(d: dict, prefix: str = "", skip: frozenset[str] = frozenset()) -> l
     return out
 
 
-class PresetTree(Tree[NodeData]):
-    BINDINGS = [
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
-        Binding("l", "expand_node", "Expand", show=False),
-        Binding("h", "collapse_node", "Collapse", show=False),
+class PresetTree(PanelTree):
+    BINDINGS = PanelTree.BINDINGS + [
         Binding("n", "new_preset", "New"),
         Binding("d", "delete", "Delete/Remove"),
         Binding("b", "set_base", "Base"),
@@ -65,10 +60,11 @@ class PresetTree(Tree[NodeData]):
             self.preset = preset
 
     class ToggleBundleRequested(Message):
-        def __init__(self, preset: str, bundle: str) -> None:
+        def __init__(self, preset: str, bundle: str, inherited: bool) -> None:
             super().__init__()
             self.preset = preset
             self.bundle = bundle
+            self.inherited = inherited
 
     class EditSettingRequested(Message):
         def __init__(self, preset: str, key_path: str | None) -> None:
@@ -92,8 +88,6 @@ class PresetTree(Tree[NodeData]):
 
     def __init__(self, **kwargs) -> None:
         super().__init__("presets", **kwargs)
-        self.show_root = False
-        self._node_map: dict[NodeData, TreeNode[NodeData]] = {}
 
     def build(self, root, presets: list[str]) -> None:
         self.clear()
@@ -127,10 +121,6 @@ class PresetTree(Tree[NodeData]):
             data = ("exclude", name, frag)
             self._node_map[data] = node.add_leaf(f"⊘ {frag}", data=data)
 
-    def _cursor_data(self) -> NodeData | None:
-        node = self.cursor_node
-        return node.data if node is not None else None
-
     def on_tree_node_highlighted(self, event: Tree.NodeHighlighted[NodeData]) -> None:
         if event.node.data and event.node.data[0] == "preset":
             self.post_message(self.Selected(event.node.data[1]))
@@ -145,7 +135,7 @@ class PresetTree(Tree[NodeData]):
         if data[0] == "preset":
             self.post_message(self.DeleteRequested(data[1]))
         elif data[0] == "bundle" and not data[3]:
-            self.post_message(self.ToggleBundleRequested(data[1], data[2]))
+            self.post_message(self.ToggleBundleRequested(data[1], data[2], False))
         elif data[0] == "exclude":
             self.post_message(self.RemoveExcludeRequested(data[1], data[2]))
 
@@ -162,7 +152,7 @@ class PresetTree(Tree[NodeData]):
     def action_toggle_bundle(self) -> None:
         data = self._cursor_data()
         if data and data[0] == "bundle":
-            self.post_message(self.ToggleBundleRequested(data[1], data[2]))
+            self.post_message(self.ToggleBundleRequested(data[1], data[2], data[3]))
 
     def action_edit_setting(self) -> None:
         data = self._cursor_data()
@@ -172,16 +162,3 @@ class PresetTree(Tree[NodeData]):
             self.post_message(self.EditSettingRequested(data[1], data[2]))
         else:
             self.post_message(self.EditSettingRequested(data[1], None))
-
-    def action_expand_node(self) -> None:
-        if self.cursor_node is not None and self.cursor_node.allow_expand:
-            self.cursor_node.expand()
-
-    def action_collapse_node(self) -> None:
-        node = self.cursor_node
-        if node is None:
-            return
-        if node.allow_expand and node.is_expanded:
-            node.collapse()
-        elif node.parent is not None and node.parent is not self.root:
-            self.cursor_line = node.parent.line

@@ -36,4 +36,10 @@ def commit_and_push(root: Path, message: str, paths: list[str]) -> None:
     if staged.returncode == 0:
         return
     _run(root, "commit", "-m", message)
-    _run(root, "push")
+    try:
+        _run(root, "push")
+    except GitError as e:
+        # The commit already landed locally at this point — say so, since a
+        # bare push error reads as if nothing happened. The next successful
+        # edit's push carries this commit along too.
+        raise GitError(f"{e} (committed locally; will retry on the next edit)") from e
