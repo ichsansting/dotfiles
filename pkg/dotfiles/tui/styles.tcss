@@ -1,0 +1,108 @@
+/* Layout ------------------------------------------------------------- */
+
+#status-bar {
+    dock: top;
+    height: 1;
+    background: $surface;
+    color: $text;
+}
+
+#body {
+    height: 1fr;
+}
+
+#left-column {
+    width: 46;
+    min-width: 34;
+}
+
+/* Panels --------------------------------------------------------------- */
+
+#presets-panel {
+    height: 40%;
+    border: round $surface-lighten-2;
+    padding: 0 1;
+}
+
+#bundles-panel {
+    height: 30%;
+    border: round $surface-lighten-2;
+    padding: 0 1;
+}
+
+#fragments-panel {
+    height: 1fr;
+    border: round $surface-lighten-2;
+    padding: 0 1;
+}
+
+#main-pane {
+    width: 1fr;
+    border: round $surface-lighten-2;
+    padding: 0 1;
+}
+
+#presets-panel:focus,
+#bundles-panel:focus,
+#fragments-panel:focus,
+#main-pane:focus,
+#main-pane:focus-within {
+    border: round $accent;
+    border-title-color: $accent;
+}
+
+#pane-welcome {
+    padding: 1 2;
+    color: $text-muted;
+}
+
+/* Modals ---------------------------------------------------------------- */
+
+ConfirmModal, PickerModal, FormModal {
+    align: center middle;
+}
+
+#confirm-container, #picker-container, #form-container {
+    width: 60;
+    height: auto;
+    background: $surface;
+    border: round $primary;
+    padding: 1 2;
+}
+
+#confirm-container.danger {
+    border: round $error;
+}
+
+#confirm-title, #picker-title, #form-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#confirm-message, #picker-note {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#confirm-buttons, #picker-buttons, #form-buttons {
+    margin-top: 1;
+    height: auto;
+    align-horizontal: right;
+}
+
+#confirm-buttons Button, #picker-buttons Button, #form-buttons Button {
+    margin-left: 1;
+}
+
+#picker-list {
+    height: auto;
+    max-height: 10;
+}
+
+#form-error {
+    height: 1;
+}
+
+.field-label {
+    color: $text-muted;
+}

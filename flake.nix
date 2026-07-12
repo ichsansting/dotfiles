@@ -72,11 +72,39 @@
             ];
             text = ''exec "${self}/bin/launch"'';
           };
+
+          # apps.<system>.edit — `nix run .#edit` (ticket 17): the bundle/
+          # preset/fragment CRUD TUI, run against a real, persistent git
+          # checkout (the invoking directory — never the ephemeral launcher's
+          # throwaway $HOME). git/sops/age back its auto-commit/push and
+          # secret-item encrypt paths; a python3 with textual runs the app
+          # itself — same split dotfiles-old used (plain pkgs.python3 for
+          # activation scripts, a withPackages env just for the TUI).
+          editPyEnv = pkgs.python3.withPackages (ps: [ ps.textual ]);
+          edit = pkgs.writeShellApplication {
+            name = "dotfiles-edit";
+            runtimeInputs = [
+              editPyEnv
+              pkgs.git
+              pkgs.sops
+              pkgs.age
+            ];
+            text = ''
+              export PYTHONPATH="${self}/pkg"
+              DOTFILES_REPO="$(pwd)"
+              export DOTFILES_REPO
+              exec ${editPyEnv}/bin/python3 -m dotfiles.tui "$@"
+            '';
+          };
         in
         {
           default = {
             type = "app";
             program = "${launch}/bin/launch";
+          };
+          edit = {
+            type = "app";
+            program = "${edit}/bin/dotfiles-edit";
           };
         }
       );

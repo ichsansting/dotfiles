@@ -1,6 +1,8 @@
 # Tool configuration only. The package is never pip-installed: the flake
 # (added by a later ticket) will run it via PYTHONPATH=pkg; pytest here
-# comes from `uv run --with pytest`.
+# comes from `uv run --with pytest` (add `--with textual --with pytest-asyncio`
+# for tests/test_tui_smoke.py — pytest.importorskip("textual") skips it
+# cleanly without them).
 [project]
 name = "dotfiles"
 version = "0.1.0"
@@ -11,3 +13,4 @@ requires-python = ">=3.11"
 testpaths = ["tests"]
 pythonpath = ["pkg"]
 addopts = "-q"
+asyncio_mode = "auto"

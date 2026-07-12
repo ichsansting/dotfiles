@@ -1,4 +1,5 @@
-"""Secrets bootstrap: age passphrase decrypt + sops decrypt (ticket 14).
+"""Secrets bootstrap: age passphrase decrypt + sops decrypt (ticket 14), plus
+sops encrypt for the editing TUI's new-secret-item flow (ticket 17).
 
 A thin caller of materialize.py — resolving *which* secrets a preset needs
 still goes through `required_secrets`/`build_plan`, never duplicated here.
@@ -10,7 +11,9 @@ running afterward. See .scratch/ephemeral-shell/issues/14-secrets-bootstrap.md.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from . import materialize
@@ -72,3 +75,64 @@ def bootstrap(root: Path, preset_name: str, target: Path, identity_file: Path) -
         os.chmod(out_path, 0o600)
 
     return decrypted
+
+
+def shred_file(path: Path) -> None:
+    """Best-effort overwrite-then-delete of a plaintext temp file; falls
+    back to a plain unlink if `shred` isn't on PATH."""
+    if not path.exists():
+        return
+    if shutil.which("shred"):
+        subprocess.run(["shred", "-u", str(path)], check=False)
+    else:
+        path.unlink()
+
+
+def _read_recipient(root: Path) -> str:
+    """Reads the single age recipient out of .sops.yaml's `keys:` anchor —
+    the same value bin/migrate-secrets extracts by hand. Needed because
+    encrypting freshly-typed content (unlike sops editing a real target
+    path) has no destination path for .sops.yaml's path_regex creation
+    rules to match against."""
+    sops_yaml = root / ".sops.yaml"
+    if not sops_yaml.exists():
+        raise FileNotFoundError(f".sops.yaml not found at {sops_yaml}")
+    for line in sops_yaml.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("- &identity"):
+            return line.split("&identity", 1)[1].strip()
+    raise RuntimeError(f"no age recipient found in {sops_yaml}")
+
+
+def encrypt_secret(root: Path, content: bytes) -> bytes:
+    """sops-encrypts `content` for the repo's age recipient, returning the
+    encrypted binary blob for the caller to write wherever the new secret
+    item lives. Bypasses .sops.yaml's path-based creation_rules
+    (--config /dev/null) the same way bin/migrate-secrets does, since there
+    is no real destination path yet to match against."""
+    recipient = _read_recipient(root)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_file = Path(tmp) / "plain"
+        tmp_file.write_bytes(content)
+        try:
+            result = subprocess.run(
+                [
+                    "sops",
+                    "--encrypt",
+                    "--config",
+                    "/dev/null",
+                    "--age",
+                    recipient,
+                    "--input-type",
+                    "binary",
+                    "--output-type",
+                    "binary",
+                    str(tmp_file),
+                ],
+                capture_output=True,
+            )
+        finally:
+            shred_file(tmp_file)
+    if result.returncode != 0:
+        raise RuntimeError(f"sops encrypt failed: {result.stderr.decode().strip()}")
+    return result.stdout
