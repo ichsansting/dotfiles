@@ -17,7 +17,7 @@ A design spec for an ephemeral personal-shell launcher that replaces `~/dotfiles
 
 ## Decisions so far
 
-(none yet)
+- ["What mechanisms are actually available to get a private mount namespace / isolated tmpfs $HOME as an unprivileged same-uid user"](issues/01-isolation-mechanism-research.md) — isolation builds on `unshare -rm` + manual bind/tmpfs mount (no extra dependency); `bwrap` is an optional upgrade only; fail loudly if the unprivileged-userns probe fails, since same-uid sharing means there's no permission-based fallback. Actual bastion distro/AppArmor posture is still unchecked — see linked research for probe commands.
 
 ## Not yet specified
 

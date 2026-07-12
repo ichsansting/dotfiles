@@ -1,4 +1,5 @@
 Type: grilling
+Status: claimed
 
 ## Question
 
