@@ -4,11 +4,21 @@
 
 **Blocked by:** 11 — Core materialize module
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Interactive passphrase prompt decrypts `identity.age` into `<target>/.config/sops/age/keys.txt`, and only that path — never a persistent or shared location
-- [ ] Each secret entry in the resolved file-write plan is sops-decrypted using `SOPS_AGE_KEY_FILE` pointed at that `keys.txt`, written to its planned path under the target directory
-- [ ] No caching/agent process (e.g. an ssh-agent-style helper) is started or left running after decrypt completes
-- [ ] No key material or decrypted secret is written outside the given target directory
-- [ ] Testable by pointing at any writable directory — no dependency on ticket 12's isolation mechanism
-- [ ] A wrong passphrase or decrypt failure surfaces a clear error rather than silently proceeding with partial/missing secrets
+- [x] Interactive passphrase prompt decrypts `identity.age` into `<target>/.config/sops/age/keys.txt`, and only that path — never a persistent or shared location
+- [x] Each secret entry in the resolved file-write plan is sops-decrypted using `SOPS_AGE_KEY_FILE` pointed at that `keys.txt`, written to its planned path under the target directory
+- [x] No caching/agent process (e.g. an ssh-agent-style helper) is started or left running after decrypt completes
+- [x] No key material or decrypted secret is written outside the given target directory
+- [x] Testable by pointing at any writable directory — no dependency on ticket 12's isolation mechanism
+- [x] A wrong passphrase or decrypt failure surfaces a clear error rather than silently proceeding with partial/missing secrets
+
+## Comments
+
+Implemented as `pkg/dotfiles/core/secrets.py` (`decrypt_identity`, `bootstrap`), tested by `tests/test_secrets.py`. Python, not bash — unlike tickets 12/13, this ticket's core job (building the `decrypted_secrets` dict and re-entering `materialize.build_plan`) is inherently a caller of ticket 11's Python module, so the subprocess wiring lives there too rather than splitting it across a shell wrapper.
+
+- **Closed a gap ticket 11 left open on purpose.** `materialize.build_plan` takes `decrypted_secrets` fully pre-populated — it has no way to tell a caller *which* keys it needs before they're supplied (a missing secret is simply skipped, not reported). Ticket 14 can't decrypt secrets it doesn't know about without duplicating ticket 11's bundle/fragment resolution, which the module's own docstring says every ticket should avoid. Added one small function, `materialize.required_secrets(root, preset_name) -> list[SecretSource]`, reusing the existing `_bundle_files`/`_active_fragments` internals, returning each secret's `decrypted_secrets` key paired with where its sops-encrypted source lives on disk.
+- **On-disk secret source layout: reused ticket 11's existing paths, no new convention.** A whole-file secret's encrypted source lives at the exact same `bundles/<bundle>/files/<path>` a plain file would use (mode in `files.json` decides plain-vs-sops, not the path). A secret fragment's encrypted source is the fragment file materialize.py already discovers at `fragments/<target>.d/<NN>-<owner>.secret.md` — ticket 11 walks that file but deliberately never reads its bytes; ticket 14 is the caller that does. No `secrets/` tree was invented, and ticket 16 (real content migration) doesn't need a new layout to slot into.
+- Both are sops-encrypted in **binary format** (`sops --encrypt/--decrypt --input-type binary --output-type binary`), not the block-scalar-wrapped YAML `dotfiles-old`'s `sops.py` used — binary mode round-trips arbitrary bytes (SSH keys, fragment markdown) directly with no hand-rolled YAML wrapping/key-extraction step, and doesn't care that the fragment's on-disk extension is `.md` rather than `.yaml`.
+- `secrets.bootstrap(root, preset, target, identity_file)` orchestrates: `decrypt_identity` (interactive `age --decrypt`, inherits stdin/stdout/stderr for the passphrase prompt, `chmod 0600`) → decrypt every `required_secrets` source via `sops` with `SOPS_AGE_KEY_FILE` pointed at the fresh `keys.txt` → call `materialize.build_plan` with the now-complete `decrypted_secrets` dict → write only the `mode == secret` plan entries to `target/<path>` (`chmod 0600` each). Returns the `decrypted_secrets` dict so ticket 15 can pass it into its own `build_plan` call for the full plain+secret materialization pass without decrypting twice. Fails on the first bad passphrase or sops error (`RuntimeError`, clear message) before any secret is written — never partial.
+- **Verified live in this sandbox** with real `age`/`sops` (via `nix shell nixpkgs#age nixpkgs#sops`): full suite (26 tests) passes. `tests/test_secrets.py` drives the interactive passphrase prompt with a real pty (`os.openpty` + fd redirection, stdlib-only — `age --passphrase`'s prompt refuses to read from a plain piped stdin, it needs an actual terminal) covering correct passphrase, wrong passphrase (`RuntimeError`, no `keys.txt` left behind), missing identity file (`FileNotFoundError`, no subprocess even invoked), a full whole-file-secret + secret-fragment round trip (content and `0600` perms correct at the planned target paths, nothing written outside `target`), and a wrong-recipient sops failure surfacing a clear `RuntimeError` with no partial write.

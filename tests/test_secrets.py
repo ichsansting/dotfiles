@@ -1,0 +1,233 @@
+"""Secrets bootstrap: age passphrase decrypt + sops decrypt. See
+.scratch/ephemeral-shell/issues/14-secrets-bootstrap.md.
+
+Exercises real `age`/`sops` binaries (skipped if unavailable) rather than
+mocking them — the thing worth testing here is the subprocess wiring and
+target-directory containment, not resolution logic (already covered by
+test_materialize.py). An interactive passphrase prompt needs a controlling
+terminal, so `_fake_tty` redirects this process's stdin/stdout/stderr to a
+pty pair for the duration of the call under test.
+"""
+from __future__ import annotations
+
+import contextlib
+import os
+import pty
+import shutil
+import subprocess
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+from dotfiles.core import materialize as m
+from dotfiles.core import secrets
+from conftest import write_bundle_file, write_fragment, write_preset
+
+HAS_AGE = shutil.which("age") is not None and shutil.which("age-keygen") is not None
+HAS_SOPS = shutil.which("sops") is not None
+needs_age = pytest.mark.skipif(not HAS_AGE, reason="age/age-keygen not available")
+needs_age_sops = pytest.mark.skipif(not (HAS_AGE and HAS_SOPS), reason="age/sops not available")
+
+
+@contextlib.contextmanager
+def _fake_tty():
+    """Redirect fds 0/1/2 to a pty pair so a subprocess that inherits them
+    (age's interactive passphrase prompt) can be driven without a real
+    terminal. Yields the pty master fd."""
+    master, slave = pty.openpty()
+    saved = [os.dup(0), os.dup(1), os.dup(2)]
+    os.dup2(slave, 0)
+    os.dup2(slave, 1)
+    os.dup2(slave, 2)
+    try:
+        yield master
+    finally:
+        for fd_no, saved_fd in enumerate(saved):
+            os.dup2(saved_fd, fd_no)
+            os.close(saved_fd)
+        os.close(slave)
+        os.close(master)
+
+
+def _with_passphrase(passphrase: str, fn, *args, **kwargs):
+    """Call fn(*args, **kwargs) while feeding `passphrase` (twice, covering
+    both a single decrypt prompt and an encrypt/confirm pair) into a faked
+    controlling terminal."""
+    with _fake_tty() as master:
+        def feed():
+            for _ in range(2):
+                time.sleep(0.3)
+                try:
+                    os.write(master, (passphrase + "\n").encode())
+                except OSError:
+                    return
+
+        t = threading.Thread(target=feed)
+        t.start()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            t.join()
+
+
+def _make_age_identity(tmp_path: Path, passphrase: str) -> tuple[Path, str]:
+    """Generate a fresh age keypair and passphrase-encrypt it into
+    identity.age, returning (identity_file, recipient public key)."""
+    raw_key = tmp_path / "raw-key.txt"
+    subprocess.run(["age-keygen", "-o", str(raw_key)], check=True, capture_output=True)
+    recipient = next(
+        line.split(":", 1)[1].strip()
+        for line in raw_key.read_text().splitlines()
+        if "public key:" in line.lower()
+    )
+
+    identity_file = tmp_path / "identity.age"
+    _with_passphrase(
+        passphrase,
+        subprocess.run,
+        ["age", "--passphrase", "--encrypt", "-o", str(identity_file), str(raw_key)],
+        check=True,
+    )
+    raw_key.unlink()
+    return identity_file, recipient
+
+
+def _sops_encrypt_binary(content: bytes, recipient: str, out_path: Path) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out_path.with_suffix(out_path.suffix + ".plain-tmp")
+    tmp.write_bytes(content)
+    try:
+        result = subprocess.run(
+            ["sops", "--encrypt", "--age", recipient, "--input-type", "binary", "--output-type", "binary", str(tmp)],
+            capture_output=True,
+            check=True,
+        )
+        out_path.write_bytes(result.stdout)
+    finally:
+        tmp.unlink()
+
+
+# -- decrypt_identity ----------------------------------------------------------
+
+
+def test_decrypt_identity_missing_file_raises_without_invoking_age(tmp_path: Path):
+    with pytest.raises(FileNotFoundError):
+        secrets.decrypt_identity(tmp_path / "no-such-identity.age", tmp_path / "target")
+
+
+@needs_age
+def test_decrypt_identity_correct_passphrase(tmp_path: Path):
+    passphrase = "correct horse battery staple"
+    identity_file, _ = _make_age_identity(tmp_path, passphrase)
+    target = tmp_path / "target"
+    target.mkdir()
+
+    key_path = _with_passphrase(passphrase, secrets.decrypt_identity, identity_file, target)
+
+    assert key_path == target / ".config" / "sops" / "age" / "keys.txt"
+    assert key_path.exists()
+    assert (key_path.stat().st_mode & 0o777) == 0o600
+    assert "AGE-SECRET-KEY" in key_path.read_text()
+
+
+@needs_age
+def test_decrypt_identity_wrong_passphrase_raises(tmp_path: Path):
+    identity_file, _ = _make_age_identity(tmp_path, "correct horse battery staple")
+    target = tmp_path / "target"
+    target.mkdir()
+
+    with pytest.raises(RuntimeError, match="wrong passphrase"):
+        _with_passphrase("definitely wrong", secrets.decrypt_identity, identity_file, target)
+
+    assert not (target / ".config" / "sops" / "age" / "keys.txt").exists()
+
+
+# -- bootstrap: end-to-end secret decrypt + write -------------------------------
+
+
+@needs_age_sops
+def test_bootstrap_decrypts_identity_and_every_secret_entry(tmp_path: Path):
+    passphrase = "correct horse battery staple"
+    identity_file, recipient = _make_age_identity(tmp_path, passphrase)
+
+    repo = tmp_path / "repo"
+    write_bundle_file(repo, "vcs", ".ssh/id_ed25519", "secret")
+    write_fragment(repo, ".claude/CLAUDE.md", "10", "vcs", "unused-plaintext-placeholder", secret=True)
+    write_preset(repo, "personal", bundles=["vcs"], settings={})
+
+    ssh_key_content = b"-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n-----END OPENSSH PRIVATE KEY-----\n"
+    fragment_content = b"secret claude fragment content"
+    _sops_encrypt_binary(ssh_key_content, recipient, repo / "bundles" / "vcs" / "files" / ".ssh" / "id_ed25519")
+    _sops_encrypt_binary(
+        fragment_content, recipient, repo / "fragments" / ".claude" / "CLAUDE.md.d" / "10-vcs.secret.md"
+    )
+
+    target = tmp_path / "ephemeral-home"
+    target.mkdir()
+
+    decrypted = _with_passphrase(passphrase, secrets.bootstrap, repo, "personal", target, identity_file)
+
+    assert decrypted[".ssh/id_ed25519"] == ssh_key_content
+    assert decrypted[".claude/CLAUDE.md.d/10-vcs.secret.md"] == fragment_content
+
+    key_path = target / ".config" / "sops" / "age" / "keys.txt"
+    assert key_path.exists()
+    assert (key_path.stat().st_mode & 0o777) == 0o600
+
+    ssh_key_path = target / ".ssh" / "id_ed25519"
+    assert ssh_key_path.read_bytes() == ssh_key_content
+    assert (ssh_key_path.stat().st_mode & 0o777) == 0o600
+
+    claude_md_path = target / ".claude" / "CLAUDE.md"
+    assert claude_md_path.read_bytes() == fragment_content + b"\n"
+    assert (claude_md_path.stat().st_mode & 0o777) == 0o600
+
+    # Nothing lands outside the target directory.
+    assert not (tmp_path / ".config").exists()
+    assert not (repo / ".config").exists()
+
+
+@needs_age_sops
+def test_bootstrap_wrong_recipient_raises_clear_error(tmp_path: Path):
+    passphrase = "correct horse battery staple"
+    identity_file, _real_recipient = _make_age_identity(tmp_path, passphrase)
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    _, other_recipient = _make_age_identity(other_dir, passphrase)
+
+    repo = tmp_path / "repo"
+    write_bundle_file(repo, "vcs", ".ssh/id_ed25519", "secret")
+    write_preset(repo, "personal", bundles=["vcs"], settings={})
+    _sops_encrypt_binary(
+        b"content encrypted for a different identity",
+        other_recipient,
+        repo / "bundles" / "vcs" / "files" / ".ssh" / "id_ed25519",
+    )
+
+    target = tmp_path / "ephemeral-home"
+    target.mkdir()
+
+    with pytest.raises(RuntimeError, match="sops decrypt failed"):
+        _with_passphrase(passphrase, secrets.bootstrap, repo, "personal", target, identity_file)
+
+    assert not (target / ".ssh" / "id_ed25519").exists()
+
+
+def test_required_secrets_covers_whole_file_and_fragment(root: Path):
+    write_bundle_file(root, "vcs", ".ssh/id_ed25519", "secret")
+    write_bundle_file(root, "vcs", ".gitconfig", "plain", content="[user]\n")
+    write_fragment(root, ".claude/CLAUDE.md", "10", "vcs", "secret content", secret=True)
+    write_fragment(root, ".claude/CLAUDE.md", "20", "vcs", "plain content", secret=False)
+    write_preset(root, "personal", bundles=["vcs"], settings={})
+
+    sources = m.required_secrets(root, "personal")
+    keys = {s.key for s in sources}
+
+    assert keys == {".ssh/id_ed25519", ".claude/CLAUDE.md.d/10-vcs.secret.md"}
+    by_key = {s.key: s.source for s in sources}
+    assert by_key[".ssh/id_ed25519"] == root / "bundles" / "vcs" / "files" / ".ssh" / "id_ed25519"
+    assert by_key[".claude/CLAUDE.md.d/10-vcs.secret.md"] == (
+        root / "fragments" / ".claude" / "CLAUDE.md.d" / "10-vcs.secret.md"
+    )

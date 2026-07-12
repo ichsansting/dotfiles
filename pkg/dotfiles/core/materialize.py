@@ -67,6 +67,12 @@ class _Fragment:
     secret: bool
 
 
+@dataclass(frozen=True)
+class SecretSource:
+    key: str  # the decrypted_secrets key this source decrypts into
+    source: Path  # on-disk sops-encrypted file (binary format)
+
+
 def _deep_merge(base: dict, overlay: dict) -> dict:
     out = dict(base)
     for k, v in overlay.items():
@@ -168,6 +174,27 @@ def _compose(fragments: list[_Fragment], decrypted_secrets: dict[str, bytes]) ->
         parts.append(data.rstrip(b"\n"))
     parts = [p for p in parts if p]
     return b"\n\n".join(parts) + b"\n" if parts else b""
+
+
+def required_secrets(root: Path, preset_name: str) -> list[SecretSource]:
+    """On-disk sops-encrypted sources (binary format) a preset's file-write
+    plan depends on: whole-file secrets at the same `bundles/<b>/files/<path>`
+    a plain file would use, and secret fragments at their existing
+    `fragments/<target>.d/<NN>-<owner>.secret.md` location. A caller (the
+    secrets bootstrap step) decrypts each and passes the result back into
+    `build_plan`'s `decrypted_secrets`, rather than duplicating bundle/preset
+    resolution."""
+    preset = load_preset(root, preset_name)
+    sources: list[SecretSource] = []
+    for bundle in preset.bundles:
+        for spec in _bundle_files(root, bundle):
+            if spec.mode == MODE_SECRET:
+                sources.append(SecretSource(key=spec.path, source=root / "bundles" / bundle / "files" / spec.path))
+    for frags in _active_fragments(root, preset).values():
+        for frag in frags:
+            if frag.secret:
+                sources.append(SecretSource(key=frag.rel_path, source=frag.file))
+    return sources
 
 
 def build_plan(
