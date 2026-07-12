@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Standalone verification for bin/isolate (ticket 12) — no dependency on
+# materialize, secrets, or package assembly. Run directly: bin/isolate-demo
+set -euo pipefail
+cd "$(dirname "$0")"
+
+MARKER=".isolate-demo-marker"
+REAL_HOME_MARKER="$HOME/$MARKER"
+rm -f "$REAL_HOME_MARKER"
+
+case "$(uname -s)" in
+  Linux)
+    if out=$(./isolate -- sh -c "echo written > \"\$HOME/$MARKER\"; cat \"\$HOME/$MARKER\"" 2>&1); then
+      [[ "$out" == "written" ]] || { echo "FAIL: unexpected isolate output: $out"; exit 1; }
+      if [[ -e "$REAL_HOME_MARKER" ]]; then
+        echo "FAIL: marker leaked into the real \$HOME — a peer session would have seen it"
+        exit 1
+      fi
+      echo "OK: marker was written/read inside the isolated \$HOME and never appeared in the real \$HOME (peer-invisibility confirmed)"
+    elif [[ "$out" == *"unprivileged user namespaces are unavailable"* ]]; then
+      echo "unprivileged user namespaces unavailable on this host — exercised the loud-failure path instead"
+      echo "OK: isolate failed loudly rather than falling back to an unisolated \$HOME"
+    else
+      echo "FAIL: isolate failed unexpectedly:"
+      echo "$out"
+      exit 1
+    fi
+    ;;
+  Darwin)
+    stale_dir="${TMPDIR:-/tmp}/dotfiles-ephemeral-home.stale-demo"
+    mkdir -p "$stale_dir"
+    touch -t 202001010000 "$stale_dir"
+
+    iso_home_path=$(./isolate -- sh -c 'echo "$HOME"')
+    [[ -n "$iso_home_path" ]] || { echo "FAIL: isolate did not report an isolated \$HOME path"; exit 1; }
+    if [[ -e "$iso_home_path" ]]; then
+      echo "FAIL: isolated \$HOME ($iso_home_path) still exists after isolate exited — trap cleanup did not run"
+      exit 1
+    fi
+    echo "OK: isolated \$HOME ($iso_home_path) was removed on exit (trap cleanup confirmed)"
+
+    if [[ -e "$stale_dir" ]]; then
+      echo "FAIL: stale-directory sweep did not remove a leftover dir from a prior crashed session"
+      exit 1
+    fi
+    echo "OK: stale-directory sweep removed the leftover dir from a simulated crashed session"
+    ;;
+  *)
+    echo "SKIP: unsupported OS $(uname -s)"
+    ;;
+esac

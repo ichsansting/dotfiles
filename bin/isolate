@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Ephemeral $HOME isolation launcher (ticket 12).
+#
+# Linux: probes unprivileged user-namespace availability, then builds a
+# private user+mount namespace and mounts a fresh tmpfs over $HOME —
+# invisible to a peer same-uid session, which never joins this namespace.
+# Fails loudly if the probe fails; there is no permission-based fallback
+# that actually hides anything between two sessions sharing a UID (see
+# .scratch/ephemeral-shell/research/01-isolation-mechanisms.md). Uses bwrap
+# instead of raw unshare when already present on PATH, but never requires it.
+#
+# macOS: no namespace facility exists on Darwin, so $HOME becomes a plain
+# mktemp -d directory, removed by a trap on normal/interrupted exit. A trap
+# can't run after SIGKILL/a crash, so each launch first sweeps stale
+# directories left behind by a prior one.
+#
+# Usage: isolate [--] [CMD...]   (defaults to $SHELL)
+set -euo pipefail
+
+STALE_PREFIX="dotfiles-ephemeral-home"
+
+[[ "${1:-}" == "--" ]] && shift
+CMD=("$@")
+[[ ${#CMD[@]} -eq 0 ]] && CMD=("${SHELL:-/bin/sh}")
+
+sweep_stale_macos() {
+  find "${TMPDIR:-/tmp}" -maxdepth 1 -name "${STALE_PREFIX}.*" -mtime +0 -exec rm -rf {} + 2>/dev/null || true
+}
+
+isolate_macos() {
+  sweep_stale_macos
+  local iso_home
+  iso_home=$(mktemp -d "${TMPDIR:-/tmp}/${STALE_PREFIX}.XXXXXX")
+  trap 'rm -rf "$iso_home"' EXIT INT TERM
+  HOME="$iso_home" "${CMD[@]}"
+}
+
+NS_ARGS=(--user --map-root-user --mount --propagation private)
+
+probe_userns() {
+  unshare "${NS_ARGS[@]}" -- true >/dev/null 2>&1
+}
+
+isolate_linux() {
+  if ! probe_userns; then
+    echo "isolate: unprivileged user namespaces are unavailable on this host." >&2
+    echo "isolate: refusing to fall back to an unisolated \$HOME." >&2
+    echo "isolate: see .scratch/ephemeral-shell/research/01-isolation-mechanisms.md for diagnostic probe commands." >&2
+    exit 1
+  fi
+
+  if command -v bwrap >/dev/null 2>&1; then
+    exec bwrap --unshare-user --dev-bind / / --tmpfs "$HOME" --chdir "$HOME" -- "${CMD[@]}"
+  fi
+
+  # mount runs as its own step (not chained straight into exec) so a mount
+  # failure gets an isolate:-prefixed message; once mount succeeds, exec
+  # replaces this process and CMD's own exit code passes through untouched.
+  exec unshare "${NS_ARGS[@]}" -- sh -c '
+    if ! mount -t tmpfs tmpfs "$HOME"; then
+      echo "isolate: failed to mount an isolated \$HOME (see mount error above)." >&2
+      exit 1
+    fi
+    exec "$@"
+  ' _ "${CMD[@]}"
+}
+
+case "$(uname -s)" in
+  Linux) isolate_linux ;;
+  Darwin) isolate_macos ;;
+  *)
+    echo "isolate: unsupported OS $(uname -s)" >&2
+    exit 1
+    ;;
+esac

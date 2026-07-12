@@ -4,13 +4,22 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Linux: probes unprivileged user-namespace availability before proceeding
-- [ ] Linux: on probe success, creates a private mount namespace with an isolated `$HOME` (`unshare -rm` + bind/tmpfs mount) invisible to a peer same-uid session's filesystem view
-- [ ] Linux: on probe failure, fails loudly with a clear error — never falls back to an unisolated `$HOME`
-- [ ] Linux: uses `bwrap` instead of raw `unshare` when already present on the target, without adding it as a required dependency
-- [ ] macOS: creates `$HOME` via `mktemp -d`
-- [ ] macOS: registers a trap on `EXIT INT TERM` that removes the temp `$HOME` on normal exit, Ctrl-C, and terminate signal
-- [ ] macOS: sweeps stale leftover temp directories from a prior crashed/`SIGKILL`ed session at the start of the next launch
-- [ ] A standalone test/demo enters the isolated `$HOME`, writes a marker file, and verifies peer-invisibility (Linux) or cleanup (macOS) independent of any other ticket
+- [x] Linux: probes unprivileged user-namespace availability before proceeding
+- [x] Linux: on probe success, creates a private mount namespace with an isolated `$HOME` (`unshare -rm` + bind/tmpfs mount) invisible to a peer same-uid session's filesystem view
+- [x] Linux: on probe failure, fails loudly with a clear error — never falls back to an unisolated `$HOME`
+- [x] Linux: uses `bwrap` instead of raw `unshare` when already present on the target, without adding it as a required dependency
+- [x] macOS: creates `$HOME` via `mktemp -d`
+- [x] macOS: registers a trap on `EXIT INT TERM` that removes the temp `$HOME` on normal exit, Ctrl-C, and terminate signal
+- [x] macOS: sweeps stale leftover temp directories from a prior crashed/`SIGKILL`ed session at the start of the next launch
+- [x] A standalone test/demo enters the isolated `$HOME`, writes a marker file, and verifies peer-invisibility (Linux) or cleanup (macOS) independent of any other ticket
+
+## Comments
+
+Implemented as `bin/isolate` (the launcher) and `bin/isolate-demo` (the standalone verification, criterion 8), both plain bash — no Python, since every primitive involved (`unshare`, `mktemp`, `trap`) is OS/shell-level, matching the spec's "thin wrapper" framing for this piece.
+
+- `bin/isolate [--] [CMD...]` dispatches on `uname -s`. Linux: probes via a throwaway `unshare --user --map-root-user --mount --propagation private -- true`; on failure, prints three `isolate:`-prefixed error lines (pointing at the research doc) and exits 1 — no fallback path exists in the code at all, not just "unused." On success, mounts a fresh tmpfs directly over the real `$HOME` path inside the new namespace (`mount -t tmpfs tmpfs "$HOME"`) rather than a separate bind-mount target — simplest way to get an isolated `$HOME` at the same path, and `--propagation private` keeps the remount from ever reaching the parent/peer namespace. Uses `bwrap --unshare-user --dev-bind / / --tmpfs "$HOME" --chdir "$HOME"` instead when `bwrap` is found on `PATH`, gated entirely behind the same successful probe — never a required dependency. macOS: sweeps stale `dotfiles-ephemeral-home.*` dirs older than a day via `find -mtime +0`, then `mktemp -d` plus `trap ... EXIT INT TERM`; deliberately does *not* `exec` into `CMD` here (only Linux does), because `exec` replaces the process and would skip the trap on the way out.
+- `bin/isolate-demo` writes a marker inside the isolated `$HOME` and asserts it never appears at the real `$HOME` path afterward (Linux), or asserts the reported isolated `$HOME` directory and a manually-backdated stale dir are both gone after `isolate` exits (macOS).
+- **Verified in this sandbox**: this container's own seccomp/policy blocks `CLONE_NEWUSER` (`unshare: write failed /proc/self/uid_map: Operation not permitted`), so `isolate-demo` here exercises and confirms the *loud-failure* path (criterion 3) rather than the happy path — `isolate` exits 1 with the expected message and does not fall back. The `mktemp -d` + `trap` cleanup and the `find -mtime` stale-sweep were each separately verified working correctly in isolation (dir removed after script exit; backdated dir removed by the sweep). The happy-path Linux mount (tmpfs-over-`$HOME`, peer-invisibility) and the entire macOS branch are implemented per spec and research but **unverified live** — no host in this environment has unprivileged userns enabled or is Darwin. Run `bin/isolate-demo` on the actual bastion/laptop targets to confirm the happy paths for real, per the spec's own "unresolved until checked on the real bastion" note.
+- **Post-implementation review (`/code-review`)** caught two real gaps, both fixed before commit: (1) the `unshare --user --map-root-user --mount --propagation private` flag set was duplicated three times (probe, real build, and reimplemented again in the demo) — collapsed to one `NS_ARGS` array in `bin/isolate`, reused by both call sites, and the demo now drives `isolate` itself instead of reimplementing the probe. (2) a mount failure *after* a successful probe (e.g. a narrower seccomp/LSM rule blocking `mount(2)` specifically, per research 01's "what remains unknown" section) surfaced as raw, unlabeled `mount` stderr instead of the loud `isolate:`-prefixed error the ticket requires — fixed by running `mount` as its own checked step before `exec`, printing a labeled message only on that specific failure, while `exec "$@"` still takes over untouched on success so CMD's own exit code is never misattributed as a setup failure. Verified directly (without `unshare`, since it's unavailable here) that a faked `mount` failure prints the label and exits 1 without running CMD, and a faked `mount` success passes CMD's real exit code straight through.
