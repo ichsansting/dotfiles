@@ -18,6 +18,7 @@ A design spec for an ephemeral personal-shell launcher that replaces `~/dotfiles
 ## Decisions so far
 
 - ["What mechanisms are actually available to get a private mount namespace / isolated tmpfs $HOME as an unprivileged same-uid user"](issues/01-isolation-mechanism-research.md) — isolation builds on `unshare -rm` + manual bind/tmpfs mount (no extra dependency); `bwrap` is an optional upgrade only; fail loudly if the unprivileged-userns probe fails, since same-uid sharing means there's no permission-based fallback. Actual bastion distro/AppArmor posture is still unchecked — see linked research for probe commands.
+- [How the age private key gets into an ephemeral session without persisting in plaintext](issues/02-secrets-bootstrapping.md) — sops+age confirmed unchanged; reuse `~/dotfiles-old`'s `identity.age` + interactive-passphrase decrypt as-is, run fresh into the isolated tmpfs `$HOME` on every launch (never cached). A caching agent was rejected: any socket outside the per-launch isolation boundary would be reachable by other same-uid peers on the bastion, undermining ticket 01's isolation. Passphrase-per-launch friction is accepted as the cost.
 
 ## Not yet specified
 
