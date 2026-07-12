@@ -39,6 +39,7 @@ class PresetTree(PanelTree):
         Binding("B", "add_bundle", "+Bundle"),
         Binding("s", "edit_setting", "Setting"),
         Binding("space", "toggle_bundle", "Toggle"),
+        Binding("p", "preview", "Preview"),
     ]
 
     class NewRequested(Message):
@@ -77,6 +78,11 @@ class PresetTree(PanelTree):
             super().__init__()
             self.preset = preset
             self.fragment_rel_path = fragment_rel_path
+
+    class PreviewRequested(Message):
+        def __init__(self, preset: str) -> None:
+            super().__init__()
+            self.preset = preset
 
     class Selected(Message):
         """Cursor moved onto a preset root — becomes the "current preset"
@@ -153,6 +159,11 @@ class PresetTree(PanelTree):
         data = self._cursor_data()
         if data and data[0] == "bundle":
             self.post_message(self.ToggleBundleRequested(data[1], data[2], data[3]))
+
+    def action_preview(self) -> None:
+        data = self._cursor_data()
+        if data:
+            self.post_message(self.PreviewRequested(data[1]))
 
     def action_edit_setting(self) -> None:
         data = self._cursor_data()

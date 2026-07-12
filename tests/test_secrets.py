@@ -183,6 +183,39 @@ def test_bootstrap_wrong_recipient_raises_clear_error(tmp_path: Path):
     assert not (target / ".ssh" / "id_ed25519").exists()
 
 
+# -- existing-secret edit flow (ticket 18): decrypt one file, re-encrypt ------
+
+
+@needs_age_sops
+def test_decrypt_edit_reencrypt_roundtrip(tmp_path: Path):
+    """The editing TUI's existing-secret flow (ticket 18): decrypt_identity
+    + decrypt_secret_file to get plaintext for $EDITOR, encrypt_secret to
+    write the edited content back — the new content must decrypt cleanly
+    with the same identity afterward."""
+    passphrase = "correct horse battery staple"
+    identity_file, recipient = _make_age_identity(tmp_path, passphrase)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".sops.yaml").write_text(f"keys:\n  - &identity {recipient}\n")
+
+    secret_path = repo / "bundles" / "vcs" / "files" / ".ssh" / "id_ed25519"
+    original = b"-----BEGIN OPENSSH PRIVATE KEY-----\noriginal\n-----END OPENSSH PRIVATE KEY-----\n"
+    _sops_encrypt_binary(original, recipient, secret_path)
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    key_path = _with_passphrase(passphrase, secrets.decrypt_identity, identity_file, scratch)
+    plaintext = secrets.decrypt_secret_file(secret_path, key_path)
+    assert plaintext == original
+
+    edited = plaintext.replace(b"original", b"edited")
+    encrypted = secrets.encrypt_secret(repo, edited)
+    secret_path.write_bytes(encrypted)
+
+    assert secrets.decrypt_secret_file(secret_path, key_path) == edited
+
+
 def test_required_secrets_covers_whole_file_and_fragment(root: Path):
     write_bundle_file(root, "vcs", ".ssh/id_ed25519", "secret")
     write_bundle_file(root, "vcs", ".gitconfig", "plain", content="[user]\n")

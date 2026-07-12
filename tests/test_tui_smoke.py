@@ -267,6 +267,26 @@ async def test_fragment_preview_and_reorder(repo: Path):
         assert not (repo / "fragments/.claude/CLAUDE.md.d/10-vcs.md").exists()
 
 
+async def test_preview_shows_plan_without_committing(repo: Path):
+    """Ticket 18's per-preset preview: MainPane shows resolved output, and
+    it's a read-only dry-run — no commit/push happens."""
+    app = EditApp(repo)
+    async with app.run_test(size=(140, 45)) as pilot:
+        before = _git(repo, "log", "-1", "--format=%H").stdout.strip()
+
+        tree = pilot.app.screen.query_one(PresetTree)
+        tree.cursor_line = tree._node_map[("preset", "default")].line
+        await pilot.press("1", "p")
+        await pilot.pause()
+
+        pane = pilot.app.screen.query_one(MainPane)
+        assert pane.current == "pane-text"
+        body = pane.query_one("#pane-text-body").content
+        assert "vcs fragment" in str(body)
+
+        assert _git(repo, "log", "-1", "--format=%H").stdout.strip() == before
+
+
 async def test_toggle_exclude_fragment_for_selected_preset(repo: Path):
     app = EditApp(repo)
     async with app.run_test(size=(140, 45)) as pilot:

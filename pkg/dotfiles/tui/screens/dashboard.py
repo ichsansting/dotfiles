@@ -7,6 +7,7 @@ across each action. See
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -111,6 +112,42 @@ class DashboardScreen(Screen):
             finally:
                 secrets.shred_file(tmp_file)
         out_path.write_bytes(encrypted)
+        return True
+
+    def _decrypt_edit_reencrypt(self, path: Path) -> bool:
+        """Existing-secret edit flow (ticket 18): age-decrypts the repo's
+        identity (interactive passphrase prompt, needs a real terminal —
+        same as $EDITOR) into a scratch dir, sops-decrypts `path` with it,
+        opens $EDITOR on the plaintext, then sops-encrypts the result back
+        over `path`. Unlike `_edit_and_encrypt` (new secret items, public
+        recipient only), this needs the private key/passphrase, so the age
+        decrypt and $EDITOR both run under one `app.suspend()`.
+
+        The scratch age key and tmp plaintext are shredded either way,
+        saved edit or cancelled."""
+        editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+        if not editor:
+            self.notify("$EDITOR is not set", severity="warning")
+            return False
+        identity_file = self.state.repo / "identity.age"
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp)
+            tmp_file = scratch / path.name
+            key_path: Path | None = None
+            try:
+                with self.app.suspend():
+                    key_path = secrets.decrypt_identity(identity_file, scratch)
+                    tmp_file.write_bytes(secrets.decrypt_secret_file(path, key_path))
+                    subprocess.run([editor, str(tmp_file)], check=False)
+                encrypted = secrets.encrypt_secret(self.state.repo, tmp_file.read_bytes())
+            except (OSError, RuntimeError) as e:
+                self.notify(str(e), severity="error")
+                return False
+            finally:
+                secrets.shred_file(tmp_file)
+                if key_path is not None:
+                    secrets.shred_file(key_path)
+        path.write_bytes(encrypted)
         return True
 
     def action_focus_panel(self, which: str) -> None:
@@ -265,6 +302,23 @@ class DashboardScreen(Screen):
             self._refresh()
             self.notify(result.message)
 
+    def on_preset_tree_preview_requested(self, msg: PresetTree.PreviewRequested) -> None:
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                result = edit.preview(self.state.repo, msg.preset, Path(tmp))
+        except (materialize.ConfigError, OSError) as e:
+            self.notify(str(e), severity="error")
+            return
+        lines = [f"packages ({len(result.packages)}): {', '.join(result.packages) or '(none)'}", ""]
+        lines += ["settings:", json.dumps(result.settings, indent=2), ""]
+        for entry in sorted(result.files, key=lambda e: e.path):
+            lines.append(f"[cyan]== {entry.path} ==[/]")
+            lines.append(entry.content.decode(errors="replace"))
+        if result.secret_paths:
+            lines.append(_SECRET_PREVIEW)
+            lines.extend(f"  {p}" for p in result.secret_paths)
+        self.query_one(MainPane).show_text(f"preview: {msg.preset}", "\n".join(lines))
+
     # -- bundles -----------------------------------------------------------------
 
     def on_bundle_tree_new_requested(self, msg: BundleTree.NewRequested) -> None:
@@ -371,6 +425,17 @@ class DashboardScreen(Screen):
             FormModal(f"Add item to {msg.bundle}", [("path", "Path (~-relative)", "")]), _on_path
         )
 
+    def on_bundle_tree_edit_item_requested(self, msg: BundleTree.EditItemRequested) -> None:
+        p = self.state.repo / "bundles" / msg.bundle / "files" / msg.path
+        if not self._decrypt_edit_reencrypt(p):
+            return
+        result = edit.EditResult(
+            [f"bundles/{msg.bundle}/files/{msg.path}"], f"bundle: edit {msg.path} in {msg.bundle}"
+        )
+        if self._commit(result):
+            self._refresh()
+            self.notify(f"Edited {msg.path}")
+
     def on_bundle_tree_preview_requested(self, msg: BundleTree.PreviewRequested) -> None:
         if msg.mode == edit.MODE_SECRET:
             self.query_one(MainPane).show_text(f"{msg.path} (secret)", _SECRET_PREVIEW)
@@ -440,14 +505,9 @@ class DashboardScreen(Screen):
         )
 
     def on_fragment_tree_edit_content_requested(self, msg: FragmentTree.EditContentRequested) -> None:
-        if msg.secret:
-            self.notify(
-                "Editing an existing secret fragment needs the age key — see ticket 18",
-                severity="warning",
-            )
-            return
         p = self.state.repo / "fragments" / msg.rel_path
-        if not self._open_editor(p):
+        filled = self._decrypt_edit_reencrypt(p) if msg.secret else self._open_editor(p)
+        if not filled:
             return
         result = edit.EditResult([f"fragments/{msg.rel_path}"], f"fragment: edit {msg.rel_path}")
         if self._commit(result):

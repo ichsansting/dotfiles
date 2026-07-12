@@ -18,6 +18,7 @@ class BundleTree(PanelTree):
         Binding("r", "rename_bundle", "Rename"),
         Binding("d", "delete", "Delete/Remove"),
         Binding("a", "add_item", "Add item"),
+        Binding("e", "edit_item", "Edit secret"),
         Binding("enter", "preview", "Preview", show=False),
     ]
 
@@ -40,6 +41,12 @@ class BundleTree(PanelTree):
             self.bundle = bundle
 
     class RemoveItemRequested(Message):
+        def __init__(self, bundle: str, path: str) -> None:
+            super().__init__()
+            self.bundle = bundle
+            self.path = path
+
+    class EditItemRequested(Message):
         def __init__(self, bundle: str, path: str) -> None:
             super().__init__()
             self.bundle = bundle
@@ -95,6 +102,11 @@ class BundleTree(PanelTree):
         data = self._cursor_data()
         if data:
             self.post_message(self.AddItemRequested(data[1]))
+
+    def action_edit_item(self) -> None:
+        data = self._cursor_data()
+        if data and data[0] == "item" and data[3] == edit.MODE_SECRET:
+            self.post_message(self.EditItemRequested(data[1], data[2]))
 
     def action_preview(self) -> None:
         data = self._cursor_data()

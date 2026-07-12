@@ -31,6 +31,14 @@ def write_bundle_file(root: Path, bundle: str, path: str, mode: str, content: st
         f.write_text(content if content is not None else "")
 
 
+def write_bundle_packages(root: Path, bundle: str, packages: list[str]) -> None:
+    manifest_path = root / "bundles" / bundle / "files.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    data = json.loads(manifest_path.read_text()) if manifest_path.exists() else {"files": []}
+    data["packages"] = packages
+    manifest_path.write_text(json.dumps(data))
+
+
 def write_fragment(root: Path, target: str, order: str, owner: str, content: str, secret: bool = False) -> None:
     suffix = ".secret.md" if secret else ".md"
     d = root / "fragments" / f"{target}.d"

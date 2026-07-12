@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from dotfiles.core import materialize as m
-from conftest import write_bundle_file, write_fragment, write_preset
+from conftest import write_bundle_file, write_bundle_packages, write_fragment, write_preset
 
 
 # -- bundle list resolution ---------------------------------------------------
@@ -54,6 +54,29 @@ def test_settings_overlay_child_overrides_base(root: Path):
         "git": {"name": "Sting", "email": "a@example.com"},
         "claude": {"account": "work1"},
     }
+
+
+# -- resolved package list -----------------------------------------------------
+
+
+def test_resolve_packages_unions_active_bundles_in_order(root: Path):
+    write_preset(root, "personal", bundles=["vcs", "terminal"], settings={})
+    write_bundle_packages(root, "vcs", ["git", "delta"])
+    write_bundle_packages(root, "terminal", ["fish", "starship"])
+    assert m.resolve_packages(root, "personal") == ["git", "delta", "fish", "starship"]
+
+
+def test_resolve_packages_dedupes_first_occurrence(root: Path):
+    write_preset(root, "default", bundles=["vcs"], settings={})
+    write_preset(root, "work1", base="default", bundles=["work-tools"], settings={})
+    write_bundle_packages(root, "vcs", ["git"])
+    write_bundle_packages(root, "work-tools", ["git", "awscli2"])
+    assert m.resolve_packages(root, "work1") == ["git", "awscli2"]
+
+
+def test_resolve_packages_bundle_with_no_manifest_contributes_none(root: Path):
+    write_preset(root, "personal", bundles=["ghost"], settings={})
+    assert m.resolve_packages(root, "personal") == []
 
 
 # -- fragment filtering --------------------------------------------------------

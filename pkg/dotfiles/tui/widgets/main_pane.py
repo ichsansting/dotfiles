@@ -11,8 +11,9 @@ WELCOME = """\
 
   [b]1[/b]/[b]2[/b]/[b]3[/b]/[b]0[/b]  jump between panels
   presets: [b]n[/b]ew · [b]d[/b]elete · [b]b[/b]ase · [b]B[/b] add bundle · \
-[b]s[/b]etting · [b]space[/b] toggle bundle
-  bundles: [b]n[/b]ew · [b]r[/b]ename · [b]d[/b]elete/remove · [b]a[/b]dd item
+[b]s[/b]etting · [b]space[/b] toggle bundle · [b]p[/b]review
+  bundles: [b]n[/b]ew · [b]r[/b]ename · [b]d[/b]elete/remove · [b]a[/b]dd item \
+· [b]e[/b]dit secret
   fragments: [b]n[/b]ew · [b]e[/b]dit · [b]R[/b]eorder · [b]d[/b]elete · \
 e[b]x[/b]clude (for panel 1's preset)
   [b]enter[/b] previews the selected item here

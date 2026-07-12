@@ -114,6 +114,32 @@ def _bundle_files(root: Path, bundle: str) -> list[_FileSpec]:
     return [_FileSpec(path=e["path"], mode=e["mode"]) for e in data.get("files", [])]
 
 
+def _bundle_packages(root: Path, bundle: str) -> list[str]:
+    p = root / "bundles" / bundle / "files.json"
+    if not p.exists():
+        return []
+    data = json.loads(p.read_text())
+    return list(data.get("packages", []))
+
+
+def resolve_packages(root: Path, preset_name: str) -> list[str]:
+    """Resolved package list for a preset: each active bundle's `packages`
+    array (in `files.json`, alongside its file list), unioned in bundle
+    order and first-occurrence deduped. Informational only — `bin/assemble`
+    resolves packages by handing bundle names to `nix shell` directly, never
+    a flattened attribute-name list; this is for display (ticket 18's
+    preview), not for driving the actual `nix shell` invocation."""
+    preset = load_preset(root, preset_name)
+    seen: set[str] = set()
+    packages: list[str] = []
+    for bundle in preset.bundles:
+        for pkg in _bundle_packages(root, bundle):
+            if pkg not in seen:
+                seen.add(pkg)
+                packages.append(pkg)
+    return packages
+
+
 def _read_bundle_file(root: Path, bundle: str, path: str) -> bytes:
     p = root / "bundles" / bundle / "files" / path
     if not p.exists():

@@ -36,7 +36,12 @@ def decrypt_identity(identity_file: Path, target: Path) -> Path:
     return key_path
 
 
-def _decrypt_secret(source: Path, age_key_file: Path) -> bytes:
+def decrypt_secret_file(source: Path, age_key_file: Path) -> bytes:
+    """sops-decrypts a single already-encrypted secret file (binary format)
+    with `age_key_file`. Used both by `bootstrap` (every secret a preset's
+    plan depends on) and by the editing TUI's existing-secret edit flow
+    (ticket 18, one file at a time, decrypted straight to a plaintext temp
+    file for `$EDITOR` rather than into a materialized plan)."""
     env = {**os.environ, "SOPS_AGE_KEY_FILE": str(age_key_file)}
     result = subprocess.run(
         ["sops", "--decrypt", "--input-type", "binary", "--output-type", "binary", str(source)],
@@ -64,7 +69,7 @@ def bootstrap(root: Path, preset_name: str, target: Path, identity_file: Path) -
 
     decrypted: dict[str, bytes] = {}
     for src in materialize.required_secrets(root, preset_name):
-        decrypted[src.key] = _decrypt_secret(src.source, age_key_file)
+        decrypted[src.key] = decrypt_secret_file(src.source, age_key_file)
 
     for entry in materialize.build_plan(root, preset_name, decrypted):
         if entry.mode != materialize.MODE_SECRET:

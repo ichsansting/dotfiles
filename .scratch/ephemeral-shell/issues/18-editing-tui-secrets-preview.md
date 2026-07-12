@@ -4,11 +4,20 @@
 
 **Blocked by:** 17 — Editing TUI CRUD, 14 — Secrets bootstrap
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Selecting a secret item decrypts it with the age key into a temp file, opens `$EDITOR`, and re-encrypts with sops on save
-- [ ] The temp plaintext is shredded after use, regardless of whether the edit was saved or cancelled
-- [ ] The re-encrypted file is auto-committed/pushed like any other edit (per ticket 17's auto-commit behavior)
-- [ ] A per-preset preview command runs the core module's resolution+compose logic (ticket 11) against a scratch directory
-- [ ] Preview output shows composed fragment content, resolved settings overlay, and resolved package list
-- [ ] Preview never writes to a real `$HOME` and never triggers a commit or push
+- [x] Selecting a secret item decrypts it with the age key into a temp file, opens `$EDITOR`, and re-encrypts with sops on save
+- [x] The temp plaintext is shredded after use, regardless of whether the edit was saved or cancelled
+- [x] The re-encrypted file is auto-committed/pushed like any other edit (per ticket 17's auto-commit behavior)
+- [x] A per-preset preview command runs the core module's resolution+compose logic (ticket 11) against a scratch directory
+- [x] Preview output shows composed fragment content, resolved settings overlay, and resolved package list
+- [x] Preview never writes to a real `$HOME` and never triggers a commit or push
+
+## Comments
+
+Implemented as additions to three existing modules, no new files:
+
+- **Secret edit flow**: `secrets.py`'s private `_decrypt_secret` became public `decrypt_secret_file` (same subprocess wiring `bootstrap` already used, now also called one file at a time). `dashboard.py` adds `_decrypt_edit_reencrypt(path)`: age-decrypts the repo's `identity.age` (interactive passphrase) into a scratch `TemporaryDirectory`, sops-decrypts `path` with the fresh key, opens `$EDITOR` on the plaintext, sops-encrypts the result back over `path` — all under one `app.suspend()`, since both the age prompt and `$EDITOR` need a real controlling terminal. The scratch plaintext and age key are shredded in a `finally`, saved or cancelled either way. Wired to two call sites: fragments (`FragmentTree`'s existing `e` binding, replacing ticket 17's "see ticket 18" decline for secret fragments) and bundle items (new `BundleTree` `e` binding — bundle items had no edit-existing-content path at all before this, secret or plain; only secret is wired here, matching this ticket's scope). Both funnel into the existing `_commit`/`gitops.commit_and_push` seam, so auto-commit/push is free.
+- **Preview flow**: new `edit.preview(root, preset_name, scratch) -> PreviewResult` (packages, settings, file plan, secret paths) writes a preset's `materialize.build_plan` output into a caller-supplied scratch directory, never `root` — the one function in `edit.py` that doesn't mutate the repo or return an `EditResult`, called out in the module docstring. Also added `materialize.resolve_packages`, reading each active bundle's `files.json` `packages` array (present since ticket 16, never resolved anywhere until now) unioned in bundle order, first-occurrence deduped. No decrypt happens for preview — secret-dependent targets are skipped by ticket 11's existing "skip target on missing secret" behavior in `build_plan`, and their keys are surfaced separately via `secret_paths` so the preview pane can note what it couldn't show rather than silently omitting it. New `p` binding on `PresetTree` triggers it; the dashboard handler renders packages/settings/composed file content/skipped-secrets into the existing `MainPane` text view.
+- **Reviewed via `/code-review`** (Standards + Spec axes, parallel sub-agents). Spec axis: no findings — all six checklist items confirmed against the diff. Standards axis fixes applied: `edit.py`'s module docstring now calls out `preview`'s scratch-dir exception to the "mutates root" contract; the preview handler now also catches `OSError` (real file writes, not just `materialize.ConfigError`); `PreviewResult.settings` typed `dict[str, Any]` to match `materialize.Preset.settings`. Not acted on (judgement call): `_decrypt_edit_reencrypt` duplicates `_open_editor`'s `$EDITOR` lookup rather than reusing it — necessary, since the age decrypt and `$EDITOR` both need to run inside the same `app.suspend()` call.
+- **Verified**: full pytest suite passes both without `age`/`sops` on `PATH` (76 passed, 5 skipped) and with them via `nix shell nixpkgs#age nixpkgs#sops` (81 passed, 0 skipped) — including a new real decrypt→edit→re-encrypt round-trip test in `test_secrets.py` and two new `edit.preview` unit tests in `test_edit.py` (scratch-only writes, secret paths reported without decrypting). A new Pilot smoke test confirms the preview action renders composed content and makes no git commit. The `$EDITOR`/age-prompt-driving parts of `_decrypt_edit_reencrypt` itself aren't Pilot-testable (`app.suspend()` unsupported headless, same limitation ticket 17 hit) — covered by the `test_secrets.py` roundtrip test at the primitive level instead.

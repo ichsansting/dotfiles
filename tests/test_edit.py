@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from dotfiles.core import edit
-from conftest import write_bundle_file, write_fragment, write_preset
+from conftest import write_bundle_file, write_bundle_packages, write_fragment, write_preset
 
 # -- bundles -----------------------------------------------------------------
 
@@ -301,3 +301,41 @@ def test_delete_fragment_removes_file(root: Path):
 def test_delete_fragment_missing_raises(root: Path):
     with pytest.raises(FileNotFoundError):
         edit.delete_fragment(root, ".claude/CLAUDE.md.d/10-vcs.md")
+
+
+# -- preview (ticket 18) -------------------------------------------------------
+
+
+def test_preview_writes_plan_into_scratch_not_real_home(root: Path, tmp_path: Path):
+    write_bundle_file(root, "vcs", ".gitconfig", "plain", content="[user]\nname=Sting\n")
+    write_bundle_packages(root, "vcs", ["git", "delta"])
+    write_fragment(root, ".claude/CLAUDE.md", "10", "vcs", "vcs fragment")
+    write_preset(root, "personal", bundles=["vcs"], settings={"git": {"name": "Sting"}})
+
+    fake_home = tmp_path / "fake-home"
+    fake_home.mkdir()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+
+    result = edit.preview(root, "personal", scratch)
+
+    assert (scratch / ".gitconfig").read_text() == "[user]\nname=Sting\n"
+    assert (scratch / ".claude/CLAUDE.md").read_text() == "vcs fragment\n"
+    assert result.packages == ["git", "delta"]
+    assert result.settings == {"git": {"name": "Sting"}}
+    assert {e.path for e in result.files} == {".gitconfig", ".claude/CLAUDE.md"}
+    assert list(fake_home.iterdir()) == []  # never touches a real $HOME
+
+
+def test_preview_reports_secret_paths_without_decrypting(root: Path, tmp_path: Path):
+    write_bundle_file(root, "vcs", ".ssh/id_ed25519", "secret")
+    write_fragment(root, ".claude/CLAUDE.md", "10", "vcs", "unused", secret=True)
+    write_preset(root, "personal", bundles=["vcs"], settings={})
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+
+    result = edit.preview(root, "personal", scratch)
+
+    assert result.secret_paths == [".claude/CLAUDE.md.d/10-vcs.secret.md", ".ssh/id_ed25519"]
+    assert result.files == []  # secret-dependent targets are skipped, not partially written
+    assert list(scratch.iterdir()) == []

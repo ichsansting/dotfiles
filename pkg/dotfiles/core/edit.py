@@ -1,6 +1,7 @@
-"""Bundle/preset/fragment CRUD for the editing TUI (ticket 17).
+"""Bundle/preset/fragment CRUD for the editing TUI (ticket 17), plus the
+per-preset preview dry-run (ticket 18).
 
-Every function here performs one FS mutation against a real, persistent
+Every CRUD function here performs one FS mutation against a real, persistent
 `root` checkout and returns an `EditResult` (the repo-relative paths it
 touched, and a generated commit message) — it never calls git itself. The
 caller (the TUI's dashboard) commits+pushes every result through
@@ -14,6 +15,11 @@ $EDITOR; secret mode gets nothing until the caller sops-encrypts into the
 reserved path) and `create_fragment` (same split). This lets one $EDITOR or
 encrypt round-trip happen between the metadata write and the commit,
 without a second core function or a second commit.
+
+`preview` is the one exception to the "mutates `root`, returns an
+`EditResult`" shape above: it writes into a caller-supplied scratch
+directory instead — never `root`, never committed — and returns a
+`PreviewResult`. See .scratch/ephemeral-shell/issues/18-editing-tui-secrets-preview.md.
 """
 from __future__ import annotations
 
@@ -22,6 +28,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from . import materialize
 
@@ -43,6 +50,14 @@ class FragmentInfo:
     rel_path: str
     owner: str
     secret: bool
+
+
+@dataclass(frozen=True)
+class PreviewResult:
+    packages: list[str]
+    settings: dict[str, Any]
+    files: list[materialize.PlanEntry]
+    secret_paths: list[str]  # secret entries, skipped from `files` — not decrypted for preview
 
 
 def _validate_slug(kind: str, name: str) -> None:
@@ -378,3 +393,33 @@ def delete_fragment(root: Path, rel_path: str) -> EditResult:
         raise FileNotFoundError(f"fragment not found: {rel_path}")
     p.unlink()
     return EditResult([f"fragments/{rel_path}"], f"fragment: delete {rel_path}")
+
+
+# -- preview (ticket 18) ------------------------------------------------------
+
+
+def preview(root: Path, preset_name: str, scratch: Path) -> PreviewResult:
+    """Per-preset materialize dry-run: writes the preset's file-write plan
+    (ticket 11's `build_plan`, no decrypted secrets supplied) into `scratch`
+    — never a real `$HOME`, never committed or pushed — and returns it
+    alongside the resolved package list and settings overlay for the
+    editing TUI's preview pane.
+
+    Secret-dependent targets are skipped by `build_plan` itself (no
+    plaintext to compose without a passphrase); their source keys are
+    reported separately via `secret_paths` so the preview can note what it
+    couldn't show, rather than silently omitting them.
+    """
+    preset = materialize.load_preset(root, preset_name)
+    plan = materialize.build_plan(root, preset_name)
+    for entry in plan:
+        out = scratch / entry.path
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(entry.content)
+    secret_paths = sorted({s.key for s in materialize.required_secrets(root, preset_name)})
+    return PreviewResult(
+        packages=materialize.resolve_packages(root, preset_name),
+        settings=preset.settings,
+        files=plan,
+        secret_paths=secret_paths,
+    )
