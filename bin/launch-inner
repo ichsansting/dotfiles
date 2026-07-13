@@ -13,8 +13,32 @@ verification of the full chain.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
+
+
+def _derive_allowed_signers(target: Path, git_email: str | None) -> None:
+    """Derives the ssh pubkey from the freshly materialized private key and
+    writes allowed_signers, so `git verify-commit`/`gpg.ssh` work without a
+    manual step (ports dotfiles-old's activate.py `pubkey` command). No-ops
+    if this preset didn't materialize an id_ed25519 or a git.email."""
+    ssh_key = target / ".ssh" / "id_ed25519"
+    if not ssh_key.exists() or not git_email:
+        return
+
+    result = subprocess.run(["ssh-keygen", "-y", "-f", str(ssh_key)], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ssh-keygen -y failed: {result.stderr.strip()}")
+    pub_key = result.stdout.strip()
+
+    pub_path = ssh_key.parent / "id_ed25519.pub"
+    pub_path.write_text(pub_key + "\n")
+    os.chmod(pub_path, 0o644)
+
+    allowed_path = ssh_key.parent / "allowed_signers"
+    allowed_path.write_text(f"{git_email} {pub_key}\n")
+    os.chmod(allowed_path, 0o600)
 
 
 def build_home(root: Path, preset_name: str, target: Path) -> list[str]:
@@ -32,9 +56,11 @@ def build_home(root: Path, preset_name: str, target: Path) -> list[str]:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(entry.content)
 
-    bundles = materialize.load_preset(root, preset_name).bundles
+    preset = materialize.load_preset(root, preset_name)
+    _derive_allowed_signers(target, preset.settings.get("git", {}).get("email"))
+
     assemble = str(root / "bin" / "assemble")
-    return [assemble, *bundles]
+    return [assemble, *preset.bundles]
 
 
 if __name__ == "__main__":

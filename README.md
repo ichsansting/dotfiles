@@ -39,8 +39,6 @@ nix run --extra-experimental-features 'nix-command flakes' github:ichsansting/do
 - `work2` preset doesn't exist yet — only one real work account exists
   today. `work1` is based on the shared `devbase` preset so a future
   `work2` can extend it without duplicating the bundle list.
-- `git config`'s `allowedSignersFile` isn't auto-derived from `id_ed25519`
-  at launch — populate it by hand if you need `git verify-commit`.
 - nix-direnv isn't wired into `.config/direnv/direnvrc` — `use flake`/
   `use nix` work but without eval caching.
 - fish's "done" notification plugin isn't ported (needs a plugin manager)

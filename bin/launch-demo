@@ -70,28 +70,9 @@ def _make_demo_identity(fixture_root: Path) -> str:
     return recipient
 
 
-def _make_fixture(fixture_root: Path, recipient: str) -> None:
-    (fixture_root / "presets").mkdir(parents=True)
-    (fixture_root / "presets" / "demo.json").write_text(
-        json.dumps({"bundles": ["demo-bundle"], "settings": {}})
-    )
-
-    files_dir = fixture_root / "bundles" / "demo-bundle" / "files"
-    files_dir.mkdir(parents=True)
-    (fixture_root / "bundles" / "demo-bundle" / "files.json").write_text(
-        json.dumps(
-            {
-                "files": [
-                    {"path": ".plain-file", "mode": "plain"},
-                    {"path": ".secret-file", "mode": "secret"},
-                ]
-            }
-        )
-    )
-    (files_dir / ".plain-file").write_text("plain content\n")
-
-    plain_secret = files_dir / ".secret-file.plain-tmp"
-    plain_secret.write_bytes(b"demo secret content\n")
+def _encrypt_secret(files_dir: Path, name: str, content: bytes, recipient: str) -> None:
+    plain = files_dir / f"{name}.plain-tmp"
+    plain.write_bytes(content)
     encrypted = subprocess.run(
         [
             "sops",
@@ -104,13 +85,44 @@ def _make_fixture(fixture_root: Path, recipient: str) -> None:
             "binary",
             "--output-type",
             "binary",
-            str(plain_secret),
+            str(plain),
         ],
         capture_output=True,
         check=True,
     ).stdout
-    (files_dir / ".secret-file").write_bytes(encrypted)
-    plain_secret.unlink()
+    (files_dir / name).write_bytes(encrypted)
+    plain.unlink()
+
+
+def _make_fixture(fixture_root: Path, recipient: str) -> None:
+    (fixture_root / "presets").mkdir(parents=True)
+    (fixture_root / "presets" / "demo.json").write_text(
+        json.dumps({"bundles": ["demo-bundle"], "settings": {"git": {"email": "demo@example.com"}}})
+    )
+
+    files_dir = fixture_root / "bundles" / "demo-bundle" / "files"
+    files_dir.mkdir(parents=True)
+    (fixture_root / "bundles" / "demo-bundle" / "files.json").write_text(
+        json.dumps(
+            {
+                "files": [
+                    {"path": ".plain-file", "mode": "plain"},
+                    {"path": ".secret-file", "mode": "secret"},
+                    {"path": ".ssh/id_ed25519", "mode": "secret"},
+                ]
+            }
+        )
+    )
+    (files_dir / ".plain-file").write_text("plain content\n")
+    _encrypt_secret(files_dir, ".secret-file", b"demo secret content\n", recipient)
+
+    ssh_dir = files_dir / ".ssh"
+    ssh_dir.mkdir()
+    demo_key = ssh_dir / "id_ed25519.raw"
+    subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(demo_key)], capture_output=True, check=True)
+    _encrypt_secret(files_dir, ".ssh/id_ed25519", demo_key.read_bytes(), recipient)
+    demo_key.unlink()
+    demo_key.with_suffix(".raw.pub").unlink()
 
     frag_dir = fixture_root / "fragments" / ".demo.d"
     frag_dir.mkdir(parents=True)
@@ -154,12 +166,27 @@ def demo_build_home() -> None:
             print("FAIL: identity key was not decrypted into the ephemeral $HOME")
             sys.exit(1)
 
+        pub_path = home / ".ssh" / "id_ed25519.pub"
+        if not pub_path.exists() or not pub_path.read_text().startswith("ssh-ed25519 "):
+            print("FAIL: ssh pubkey was not derived from the materialized private key")
+            sys.exit(1)
+
+        signers_path = home / ".ssh" / "allowed_signers"
+        expected_signers = f"demo@example.com {pub_path.read_text()}"
+        if not signers_path.exists() or signers_path.read_text() != expected_signers:
+            print("FAIL: allowed_signers was not derived correctly")
+            sys.exit(1)
+        if (signers_path.stat().st_mode & 0o777) != 0o600:
+            print("FAIL: allowed_signers has the wrong permissions")
+            sys.exit(1)
+
         expected_argv = [str(fixture_root / "bin" / "assemble"), "demo-bundle"]
         if argv != expected_argv:
             print(f"FAIL: unexpected assemble argv: {argv}")
             sys.exit(1)
 
         print("OK: identity + secret file decrypted, plain file and composed fragment materialized")
+        print("OK: ssh pubkey + allowed_signers derived from the materialized private key")
         print(f"OK: would hand off to: {' '.join(argv)}")
 
 
@@ -186,7 +213,7 @@ def demo_isolate_handoff() -> None:
 
 
 if __name__ == "__main__":
-    missing = [t for t in ("age", "age-keygen", "sops") if shutil.which(t) is None]
+    missing = [t for t in ("age", "age-keygen", "sops", "ssh-keygen") if shutil.which(t) is None]
     if missing:
         print(f"SKIP: {', '.join(missing)} not available")
         sys.exit(0)

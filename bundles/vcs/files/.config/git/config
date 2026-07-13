@@ -6,9 +6,6 @@
 [gpg]
 	format = ssh
 
-# ponytail: allowedSignersFile isn't auto-derived from id_ed25519 on launch
-# (dotfiles-old's activate.py pubkey step wasn't ported); verify-commit needs
-# the file populated by hand until a launch-time derivation step exists.
 [gpg "ssh"]
 	allowedSignersFile = ~/.ssh/allowed_signers
 

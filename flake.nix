@@ -69,6 +69,7 @@
               pkgs.age
               pkgs.sops
               pkgs.python3
+              pkgs.openssh
             ];
             text = ''exec "${self}/bin/launch"'';
           };
