@@ -11,9 +11,15 @@ wiped on exit. No persistent install, no home-manager. See
 nix run github:ichsansting/dotfiles
 ```
 
-Picks an interactive preset (personal, work1, bastion, ...) via `fzf`, then
-drops you into that persona's shell. Always resolves the current `main`
-HEAD — no version pinning, no local clone required.
+Picks an interactive preset (personal, work-litellm, work-direct, bastion,
+...) via `fzf`, then drops you into that persona's shell. Always resolves
+the current `main` HEAD — no version pinning, no local clone required.
+
+`work-litellm` and `work-direct` are both the `work` persona (AWS/docker/
+granted/Traveloka tooling), differing only in how Claude Code talks to
+Anthropic: `work-litellm` routes through the `litellm.tvlk.cloud` proxy
+(today's default); `work-direct` uses a direct enterprise Anthropic OAuth
+login instead, no proxy in the loop.
 
 ## Edit
 
@@ -34,11 +40,25 @@ target machine:
 nix run --extra-experimental-features 'nix-command flakes' github:ichsansting/dotfiles
 ```
 
+## `work-direct` needs its own enterprise Claude Code login
+
+Unlike `work-litellm`, `work-direct` has no prior credential to migrate —
+`~/dotfiles-old` never tracked a direct (non-proxy) enterprise Anthropic
+login. Capture one:
+
+```
+claude login   # under your enterprise Anthropic account
+sops --encrypt --config /dev/null --age "$(grep -A1 '^keys:' .sops.yaml | tail -1 | sed 's/^[^&]*&identity //')" \
+  --input-type binary --output-type binary \
+  ~/.claude/.credentials.json > bundles/claude-oauth-work/files/.claude/.credentials.json
+git add bundles/claude-oauth-work/files/.claude/.credentials.json && git commit
+```
+
+Until this is done, launching `work-direct` fails at the secrets-decrypt
+step (sops has nothing to decrypt at that path).
+
 ## Known gaps (not ported from dotfiles-old)
 
-- `work2` preset doesn't exist yet — only one real work account exists
-  today. `work1` is based on the shared `devbase` preset so a future
-  `work2` can extend it without duplicating the bundle list.
 - nix-direnv isn't wired into `.config/direnv/direnvrc` — `use flake`/
   `use nix` work but without eval caching.
 - fish's "done" notification plugin isn't ported (needs a plugin manager)

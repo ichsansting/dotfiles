@@ -1,0 +1,7 @@
+{
+  "files": [
+    { "path": ".config/fish/conf.d/55-litellm.fish", "mode": "plain" },
+    { "path": ".omp/agent/models.yml", "mode": "plain" }
+  ],
+  "packages": []
+}
