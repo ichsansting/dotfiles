@@ -10,7 +10,8 @@
 - [x] Presets ported: `personal`, `work1`, `bastion` — see Comments for why `work2` was deferred
 - [x] Fragments ported (e.g. `.claude/CLAUDE.md` composition across contributing bundles), preserving existing ordering intent
 - [x] atuin's session/key is added to the secrets manifest as a new decrypt-fresh secret
-- [x] Structurally verified end-to-end (`materialize.build_plan` resolves every preset with no `ConfigError`, all 13 bundles build real nixpkgs closures) — real secret content is a pending manual step, see Comments
+- [x] Structurally verified end-to-end (`materialize.build_plan` resolves every preset with no `ConfigError`, all 13 bundles build real nixpkgs closures)
+- [x] Real secret content migrated via `bin/migrate-secrets`, run locally, and committed (5150b46)
 
 ## Comments
 

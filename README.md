@@ -34,19 +34,6 @@ target machine:
 nix run --extra-experimental-features 'nix-command flakes' github:ichsansting/dotfiles
 ```
 
-## What you still need to do
-
-- **Run `bin/migrate-secrets ~/dotfiles-old` locally.** The `identity.age`
-  committed here is still the ticket-15 demo fixture (passphrase
-  `ephemeral-shell-demo-fixture`), not your real one — your old
-  `dotfiles-old` passphrase won't decrypt it until you run this. It needs a
-  real terminal (types your real passphrase, never passed through an
-  agent). It migrates your ssh key, `gh` hosts, AWS config, the Traveloka
-  fish secrets, and Claude credentials into this repo's format, captures
-  atuin's session/key (new — never tracked before), and swaps in the real
-  `identity.age`. Review `git status`/`git diff --stat` after, then commit
-  and push.
-
 ## Known gaps (not ported from dotfiles-old)
 
 - `work2` preset doesn't exist yet — only one real work account exists
