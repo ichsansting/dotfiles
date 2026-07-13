@@ -1,12 +1,35 @@
 {
   "files": [
-    { "path": ".config/fish/config.fish", "mode": "plain" },
-    { "path": ".config/fish/conf.d/10-terminal.fish", "mode": "plain" },
-    { "path": ".config/starship.toml", "mode": "plain" },
-    { "path": ".config/atuin/config.toml", "mode": "plain" },
-    { "path": ".config/zellij/config.kdl", "mode": "plain" },
-    { "path": ".local/share/atuin/session", "mode": "secret" },
-    { "path": ".local/share/atuin/key", "mode": "secret" }
+    {
+      "path": ".config/fish/config.fish",
+      "mode": "plain"
+    },
+    {
+      "path": ".config/fish/conf.d/10-terminal.fish",
+      "mode": "plain"
+    },
+    {
+      "path": ".config/starship.toml",
+      "mode": "plain"
+    },
+    {
+      "path": ".config/atuin/config.toml",
+      "mode": "plain"
+    },
+    {
+      "path": ".config/zellij/config.kdl",
+      "mode": "plain"
+    },
+    {
+      "path": ".local/share/atuin/key",
+      "mode": "secret"
+    }
   ],
-  "packages": ["fish", "starship", "atuin", "zoxide", "zellij"]
+  "packages": [
+    "fish",
+    "starship",
+    "atuin",
+    "zoxide",
+    "zellij"
+  ]
 }
