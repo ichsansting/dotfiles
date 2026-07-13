@@ -61,3 +61,13 @@ nix run --extra-experimental-features 'nix-command flakes' github:ichsansting/do
 - Isolation needs unprivileged user namespaces on the host; if unavailable,
   launch fails loudly by design, not silently — needs a real machine or
   bastion account, not a restricted sandbox.
+- Isolation only covers `$HOME` — `TMPDIR` and (on Linux) `XDG_RUNTIME_DIR`
+  still point at real, host-shared paths, so tools that write there leak to
+  peers and outlive the session. Accepted for now: config/secrets are
+  unaffected (they're written inside the isolated `$HOME`), only temp/cache
+  leakage is exposed.
+- On macOS, a tool that resolves its home directory via `getpwuid()` instead
+  of reading `$HOME` bypasses isolation entirely and writes to your real
+  home directory — no clean fix without root. A `sandbox-exec` deny-write
+  profile on the real home path would turn this into a loud failure instead
+  of a silent leak, but isn't implemented yet.
