@@ -19,10 +19,6 @@
     {
       "path": ".config/zellij/config.kdl",
       "mode": "plain"
-    },
-    {
-      "path": ".local/share/atuin/key",
-      "mode": "secret"
     }
   ],
   "packages": [
