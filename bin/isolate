@@ -29,7 +29,8 @@ sweep_stale_macos() {
 
 isolate_macos() {
   sweep_stale_macos
-  local iso_home
+  # not `local`: the EXIT trap fires after this function returns, so it needs
+  # iso_home to still be bound at the script's outer scope.
   iso_home=$(mktemp -d "${TMPDIR:-/tmp}/${STALE_PREFIX}.XXXXXX")
   trap 'rm -rf "$iso_home"' EXIT INT TERM
   HOME="$iso_home" "${CMD[@]}"
